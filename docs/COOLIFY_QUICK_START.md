@@ -6,7 +6,24 @@
 
 ## ⚡ Schnellstart (5 Minuten)
 
-### 1. GitHub Personal Access Token erstellen
+### 1. GitHub-Integration in Coolify konfigurieren
+
+**Option A: GitHub App (Empfohlen - siehe Bild oben)**
+
+1. **In Coolify:** Settings → Source Providers → GitHub
+2. **Klicke auf "New GitHub App"** (oder ähnlicher Button)
+3. **Konfiguration:**
+   - **Name:** Beliebiger Name (z.B. `Coolify ML Training`)
+   - **Organization:** Leer lassen (verwendet deinen GitHub-User)
+   - **System Wide:** ✅ Aktivieren (für alle Services verfügbar)
+4. **Klicke auf "Continue"**
+5. **Folge den Anweisungen:**
+   - Coolify erstellt automatisch eine GitHub App
+   - Du wirst zu GitHub weitergeleitet
+   - Autorisiere die App für dein Repository
+6. **Fertig!** Die GitHub App ist jetzt konfiguriert
+
+**Option B: Personal Access Token (Alternative)**
 
 1. Gehe zu: https://github.com/settings/tokens
 2. Klicke: **"Generate new token" → "Generate new token (classic)"**
@@ -16,6 +33,7 @@
    - **Scopes:** ✅ `repo` (voller Zugriff auf private Repos)
 4. Klicke: **"Generate token"**
 5. **⚠️ Kopiere den Token sofort!** (Format: `ghp_xxxxxxxxxxxx...`)
+6. **In Coolify:** Settings → Source Providers → GitHub → Token einfügen
 
 ---
 
@@ -29,7 +47,8 @@
    - **Branch:** `main`
    - **Dockerfile-Pfad:** `Dockerfile`
    - **Build-Kontext:** `.`
-   - **GitHub Token:** Füge deinen PAT ein (oder wähle konfigurierten Provider)
+   - **GitHub Provider:** Wähle deine konfigurierte GitHub App (wenn Option A verwendet)
+   - **ODER GitHub Token:** Füge deinen PAT ein (wenn Option B verwendet)
 
 3. **Service-Name:** `ml-training-service`
 

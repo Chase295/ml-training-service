@@ -49,9 +49,33 @@
 2. **Klicke auf "New Resource"** → **"Docker Compose"** oder **"Dockerfile"**
 3. **Wähle "Dockerfile"** (empfohlen für Single-Container)
 
-### Schritt 2: GitHub Personal Access Token erstellen (für privates Repo)
+### Schritt 2: GitHub-Integration konfigurieren (für privates Repo)
 
 **⚠️ WICHTIG:** Da dein Repository privat ist, benötigt Coolify Zugriff!
+
+**Option A: GitHub App (Empfohlen - bessere Integration)**
+
+1. **In Coolify:** Settings → Source Providers → GitHub
+2. **Klicke auf "New GitHub App"** (oder "Add GitHub App")
+3. **Konfiguration:**
+   - **Name:** Beliebiger Name (z.B. `Coolify ML Training`)
+   - **Organization:** Leer lassen (verwendet deinen GitHub-User) oder deine GitHub-Organization
+   - **System Wide:** ✅ Aktivieren (empfohlen - für alle Services verfügbar)
+4. **Klicke auf "Continue"**
+5. **Folge den Anweisungen:**
+   - Coolify erstellt automatisch eine GitHub App
+   - Du wirst zu GitHub weitergeleitet
+   - Autorisiere die App für dein Repository `Chase295/ml-training-service`
+   - Wähle die benötigten Berechtigungen (Repository-Zugriff)
+6. **Fertig!** Die GitHub App ist jetzt konfiguriert und kann für alle Services verwendet werden
+
+**Vorteile der GitHub App:**
+- ✅ Bessere Sicherheit (granulare Berechtigungen)
+- ✅ Automatische Updates
+- ✅ System-weit verfügbar
+- ✅ Keine manuellen Token nötig
+
+**Option B: Personal Access Token (Alternative)**
 
 1. **Gehe zu GitHub:** https://github.com/settings/tokens
 2. **Klicke auf "Generate new token" → "Generate new token (classic)"**
@@ -64,7 +88,7 @@
    - Format: `ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
 
 **Token in Coolify speichern:**
-- **Coolify UI:** Settings → Source Providers → GitHub
+- **Coolify UI:** Settings → Source Providers → GitHub → Token einfügen
 - **Oder:** Beim Erstellen des Services direkt eingeben
 
 ### Schritt 3: Repository/Quelle konfigurieren
@@ -78,8 +102,8 @@
 - **Dockerfile-Pfad:** `Dockerfile` (liegt im Root des Repos)
 - **Build-Kontext:** `.` (Root-Verzeichnis)
 - **Authentication:**
-  - **GitHub Personal Access Token:** Füge deinen PAT ein
-  - **Oder:** Verwende bereits konfigurierten GitHub Source Provider
+  - **GitHub Provider:** Wähle deine konfigurierte GitHub App (wenn Option A verwendet)
+  - **ODER GitHub Token:** Füge deinen PAT ein (wenn Option B verwendet)
 
 **Option B: SSH (Alternative)**
 - **Source:** Git Repository (SSH)
