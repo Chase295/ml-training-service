@@ -16,19 +16,22 @@
 ### 2. Service in Coolify erstellen
 
 1. **Coolify öffnen** → **"New Resource"** → **"Docker Compose"**
-2. **Repository konfigurieren:**
-   - **Source:** `Git Repository`
+
+2. **⚠️ KRITISCH - Source konfigurieren:**
+   - **Source:** `Git Repository` (MUSS ausgewählt sein!)
+   - **NICHT:** "Docker Compose File" (das würde kein Repository klonen)
+   
+3. **Repository konfigurieren:**
    - **Repository URL:** `https://github.com/Chase295/ml-training-service.git`
    - **Branch:** `main`
-   - **Docker Compose File:** `docker-compose.coolify.yml`
-   - **Build Pack:** `Dockerfile` (falls vorhanden)
+   - **Docker Compose File:** `docker-compose.coolify.yml` (Pfad zur Compose-Datei im Repo)
    - **Keine Authentifizierung nötig** (wenn Repository öffentlich ist)
 
-3. **Service-Name:** `ml-training-service`
+4. **Service-Name:** `ml-training-service`
 
-4. **⚠️ WICHTIG - Build-Kontext prüfen:**
+5. **⚠️ WICHTIG - Build-Kontext prüfen (nach dem Erstellen):**
    - **Settings → Build Pack**
-   - **Build Pack:** `Dockerfile` auswählen
+   - **Build Pack:** `Dockerfile` auswählen (falls Option vorhanden)
    - **Dockerfile-Pfad:** `Dockerfile` (im Root-Verzeichnis)
    - **Build-Kontext:** `.` (Root-Verzeichnis)
 
@@ -122,19 +125,31 @@ http://deine-coolify-url:8501
 
 ### Problem: "failed to read dockerfile: open Dockerfile: no such file or directory"
 
-**Lösung 1: Build-Kontext in Coolify prüfen**
-1. **Settings → Build Pack**
+**⚠️ HÄUFIGSTE URSACHE:** Source ist nicht auf "Git Repository" gesetzt!
+
+**Lösung 1: Source auf Git Repository setzen**
+1. **Service Settings** → **Source**
+2. **Source:** `Git Repository` auswählen (NICHT "Docker Compose File"!)
+3. **Repository URL:** `https://github.com/Chase295/ml-training-service.git`
+4. **Branch:** `main`
+5. **Docker Compose File:** `docker-compose.coolify.yml`
+6. **Erneut deployen**
+
+**Lösung 2: Build-Kontext in Coolify prüfen**
+1. **Settings → Build Pack** (falls vorhanden)
 2. **Build Pack:** `Dockerfile` auswählen
 3. **Dockerfile-Pfad:** `Dockerfile` (nicht `./Dockerfile`)
 4. **Build-Kontext:** `.` (Root-Verzeichnis)
 5. **Erneut deployen**
 
-**Lösung 2: Docker Compose ohne Build verwenden (wenn Image bereits existiert)**
-- Falls du das Image bereits lokal gebaut hast, kannst du `image:` statt `build:` verwenden
-
 **Lösung 3: Repository-Struktur prüfen**
 - Stelle sicher, dass `Dockerfile` im **Root-Verzeichnis** des Repositories liegt
 - Stelle sicher, dass `docker-compose.coolify.yml` im **Root-Verzeichnis** liegt
+- Prüfe in Coolify Logs, ob das Repository erfolgreich geklont wurde
+
+**Lösung 4: Alternative - Dockerfile direkt verwenden**
+- Falls Docker Compose Probleme macht, verwende **"Dockerfile"** als Resource Type
+- Dann werden Environment Variables und Ports manuell in Coolify konfiguriert
 
 ---
 
