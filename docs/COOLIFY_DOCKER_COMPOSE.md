@@ -21,9 +21,16 @@
    - **Repository URL:** `https://github.com/Chase295/ml-training-service.git`
    - **Branch:** `main`
    - **Docker Compose File:** `docker-compose.coolify.yml`
+   - **Build Pack:** `Dockerfile` (falls vorhanden)
    - **Keine Authentifizierung nötig** (wenn Repository öffentlich ist)
 
 3. **Service-Name:** `ml-training-service`
+
+4. **⚠️ WICHTIG - Build-Kontext prüfen:**
+   - **Settings → Build Pack**
+   - **Build Pack:** `Dockerfile` auswählen
+   - **Dockerfile-Pfad:** `Dockerfile` (im Root-Verzeichnis)
+   - **Build-Kontext:** `.` (Root-Verzeichnis)
 
 ---
 
@@ -108,6 +115,26 @@ curl http://deine-coolify-url:8000/api/health
 ```
 http://deine-coolify-url:8501
 ```
+
+---
+
+## 🔧 Troubleshooting
+
+### Problem: "failed to read dockerfile: open Dockerfile: no such file or directory"
+
+**Lösung 1: Build-Kontext in Coolify prüfen**
+1. **Settings → Build Pack**
+2. **Build Pack:** `Dockerfile` auswählen
+3. **Dockerfile-Pfad:** `Dockerfile` (nicht `./Dockerfile`)
+4. **Build-Kontext:** `.` (Root-Verzeichnis)
+5. **Erneut deployen**
+
+**Lösung 2: Docker Compose ohne Build verwenden (wenn Image bereits existiert)**
+- Falls du das Image bereits lokal gebaut hast, kannst du `image:` statt `build:` verwenden
+
+**Lösung 3: Repository-Struktur prüfen**
+- Stelle sicher, dass `Dockerfile` im **Root-Verzeichnis** des Repositories liegt
+- Stelle sicher, dass `docker-compose.coolify.yml` im **Root-Verzeichnis** liegt
 
 ---
 
