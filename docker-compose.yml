@@ -1,0 +1,36 @@
+services:
+  ml-training:
+    build: .
+    container_name: ml-training-service
+    ports:
+      - "8000:8000"  # FastAPI (Health + Metrics + API)
+      - "8501:8501"  # Streamlit UI
+    environment:
+      # ⚠️ EXTERNE Datenbank (nicht im Docker-Compose!)
+      # Beispiel: postgresql://postgres:password@100.118.155.75:5432/crypto
+      - DB_DSN=${DB_DSN:-postgresql://postgres:Ycy0qfClGpXPbm3Vulz1jBL0OFfCojITnbST4JBYreS5RkBCTsYc2FkbgyUstE6g@100.76.209.59:5432/crypto}
+      - API_PORT=8000
+      - STREAMLIT_PORT=8501
+      - MODEL_STORAGE_PATH=/app/models
+      - API_BASE_URL=http://localhost:8000
+      - JOB_POLL_INTERVAL=5
+      - MAX_CONCURRENT_JOBS=2
+    volumes:
+      # Persistente Modell-Speicherung
+      - ./models:/app/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    # ⚠️ RAM-Management: Setze Limits in Production!
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 8G  # Max 8GB RAM
+    #     reservations:
+    #       memory: 4G  # Min 4GB RAM
+    # Keine network-Konfiguration nötig - DB ist extern!
+
