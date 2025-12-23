@@ -117,10 +117,15 @@ STREAMLIT_PORT=8501
 MODEL_STORAGE_PATH=/app/models
 
 # API Base URL für Streamlit (wichtig für interne API-Calls)
-# ⚠️ WICHTIG: Verwende die interne Container-URL oder die öffentliche Domain
-API_BASE_URL=http://localhost:8000
-# ODER wenn Domain konfiguriert:
-# API_BASE_URL=https://ml-training.deine-domain.com:8000
+# ⚠️ WICHTIG: Verwende die öffentliche URL, über die der Service erreichbar ist!
+# Option 1: Mit Domain (empfohlen für Produktion)
+API_BASE_URL=https://ml-training.deine-domain.com/api
+# ODER wenn Port direkt verwendet wird:
+# API_BASE_URL=https://ml-training.deine-domain.com:8000/api
+# Option 2: Mit IP-Adresse (wenn keine Domain)
+# API_BASE_URL=http://DEINE_SERVER_IP:8000/api
+# Option 3: Nur wenn Streamlit und FastAPI im selben Container sind UND keine Domain:
+# API_BASE_URL=http://localhost:8000
 
 # Job Queue Konfiguration
 JOB_POLL_INTERVAL=5
@@ -142,8 +147,11 @@ LOG_JSON_INDENT=0
 
 2. **API_BASE_URL:**
    - Wird von Streamlit verwendet, um die FastAPI zu erreichen
-   - **Lokal/Intern:** `http://localhost:8000`
-   - **Mit Domain:** `https://ml-training.deine-domain.com:8000` (oder ohne Port wenn Reverse Proxy)
+   - **⚠️ WICHTIG:** Muss die öffentliche URL sein, über die der Service erreichbar ist!
+   - **Mit Domain (empfohlen):** `https://ml-training.deine-domain.com/api` oder `https://ml-training.deine-domain.com:8000/api`
+   - **Mit IP:** `http://DEINE_SERVER_IP:8000/api`
+   - **Nur lokal (nicht empfohlen):** `http://localhost:8000` (funktioniert nur wenn Streamlit und FastAPI im selben Container sind)
+   - **Hinweis:** Streamlit sendet Requests vom Browser des Benutzers, daher muss die URL vom Browser aus erreichbar sein!
 
 ---
 

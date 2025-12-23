@@ -51,7 +51,13 @@ STREAMLIT_PORT=8501
 MODEL_STORAGE_PATH=/app/models
 
 # API Base URL (wichtig für Streamlit)
-API_BASE_URL=http://localhost:8000
+# ⚠️ WICHTIG: Verwende die öffentliche URL deines Servers!
+# Mit Domain:
+API_BASE_URL=https://ml-training.deine-domain.com/api
+# ODER mit IP:
+# API_BASE_URL=http://DEINE_SERVER_IP:8000/api
+# ODER wenn Reverse Proxy ohne Port:
+# API_BASE_URL=https://ml-training.deine-domain.com/api
 
 # Job Queue
 JOB_POLL_INTERVAL=5
