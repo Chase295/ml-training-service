@@ -26,7 +26,7 @@
 ### 1. Coolify installiert und konfiguriert
 - Coolify läuft auf deinem Server
 - Du hast Zugriff auf die Coolify-UI
-- Git-Repository ist eingerichtet (optional, kann auch lokales Verzeichnis sein)
+- Git-Repository ist eingerichtet (privat auf GitHub)
 
 ### 2. Externe PostgreSQL-Datenbank
 - ⚠️ **WICHTIG:** Die Datenbank läuft **EXTERN** (nicht in Coolify!)
@@ -34,9 +34,10 @@
 - Firewall-Regeln erlauben Verbindung (Port 5432)
 - Datenbank-Schema ist bereits angewendet (`sql/schema.sql`)
 
-### 3. Repository-Zugriff
-- Git-Repository mit dem Code (oder lokales Verzeichnis)
-- Coolify hat Zugriff auf das Repository
+### 3. GitHub-Zugriff für privates Repository
+- **Option A (Empfohlen):** GitHub Personal Access Token (PAT)
+- **Option B:** SSH Key für Git-Zugriff
+- Repository: `https://github.com/Chase295/ml-training-service` (privat)
 
 ---
 
@@ -48,19 +49,45 @@
 2. **Klicke auf "New Resource"** → **"Docker Compose"** oder **"Dockerfile"**
 3. **Wähle "Dockerfile"** (empfohlen für Single-Container)
 
-### Schritt 2: Repository/Quelle konfigurieren
+### Schritt 2: GitHub Personal Access Token erstellen (für privates Repo)
 
-**Option A: Git-Repository**
+**⚠️ WICHTIG:** Da dein Repository privat ist, benötigt Coolify Zugriff!
+
+1. **Gehe zu GitHub:** https://github.com/settings/tokens
+2. **Klicke auf "Generate new token" → "Generate new token (classic)"**
+3. **Token konfigurieren:**
+   - **Note:** `Coolify ML Training Service`
+   - **Expiration:** Wähle Ablaufzeit (z.B. 90 Tage oder "No expiration")
+   - **Scopes:** Aktiviere `repo` (voller Zugriff auf private Repositories)
+4. **Klicke auf "Generate token"**
+5. **⚠️ WICHTIG:** Kopiere den Token sofort! (wird nur einmal angezeigt)
+   - Format: `ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
+
+**Token in Coolify speichern:**
+- **Coolify UI:** Settings → Source Providers → GitHub
+- **Oder:** Beim Erstellen des Services direkt eingeben
+
+### Schritt 3: Repository/Quelle konfigurieren
+
+**In Coolify beim Erstellen des Services:**
+
+**Option A: GitHub Repository (Empfohlen)**
 - **Source:** Git Repository
-- **Repository URL:** `https://github.com/dein-username/crypto-bot.git` (oder dein Repo)
-- **Branch:** `main` (oder dein Standard-Branch)
-- **Dockerfile-Pfad:** `ml-training-service/Dockerfile`
-- **Build-Kontext:** `ml-training-service/`
+- **Repository URL:** `https://github.com/Chase295/ml-training-service.git`
+- **Branch:** `main`
+- **Dockerfile-Pfad:** `Dockerfile` (liegt im Root des Repos)
+- **Build-Kontext:** `.` (Root-Verzeichnis)
+- **Authentication:**
+  - **GitHub Personal Access Token:** Füge deinen PAT ein
+  - **Oder:** Verwende bereits konfigurierten GitHub Source Provider
 
-**Option B: Lokales Verzeichnis**
-- **Source:** Local Directory
-- **Pfad:** `/path/to/crypto-bot/ml-training-service`
+**Option B: SSH (Alternative)**
+- **Source:** Git Repository (SSH)
+- **Repository URL:** `git@github.com:Chase295/ml-training-service.git`
+- **SSH Key:** Füge deinen privaten SSH-Key in Coolify ein
+- **Branch:** `main`
 - **Dockerfile-Pfad:** `Dockerfile`
+- **Build-Kontext:** `.`
 
 ### Schritt 3: Service-Name und Domain
 
