@@ -8,7 +8,7 @@ services:
     container_name: ml-training-service
     restart: unless-stopped
     ports:
-      - "8000:8000"  # FastAPI (Health + Metrics + API)
+      - "8005:8000"  # FastAPI (Health + Metrics + API) - externer Port 8005
       - "8501:8501"  # Streamlit UI
     environment:
       # ⚠️ EXTERNE Datenbank (nicht im Docker-Compose!)

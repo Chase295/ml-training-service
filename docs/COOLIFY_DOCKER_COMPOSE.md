@@ -46,9 +46,10 @@
 DB_DSN=postgresql://postgres:Ycy0qfClGpXPbm3Vulz1jBL0OFfCojITnbST4JBYreS5RkBCTsYc2FkbgyUstE6g@100.76.209.59:5432/crypto
 
 # ⚠️ WICHTIG: Öffentliche URL, nicht localhost!
-API_BASE_URL=https://ml-training.deine-domain.com/api
+# Verwende Port 8005 (externer Port)!
+API_BASE_URL=https://ml-training.deine-domain.com:8005/api
 # ODER mit IP:
-# API_BASE_URL=http://DEINE_SERVER_IP:8000/api
+# API_BASE_URL=http://DEINE_SERVER_IP:8005/api
 
 # Optional (Standard-Werte sind bereits in docker-compose.yml)
 JOB_POLL_INTERVAL=5
@@ -70,7 +71,7 @@ LOG_LEVEL=INFO
 ### 5. Ports prüfen
 
 **Coolify erkennt automatisch aus docker-compose.yml:**
-- Port 8000 → FastAPI
+- Port 8005 → FastAPI (extern, intern 8000)
 - Port 8501 → Streamlit UI
 
 **Beide Ports:** ✅ Public aktivieren (in Coolify Settings)
@@ -103,7 +104,7 @@ LOG_LEVEL=INFO
 - Verwendet Environment Variables (werden von Coolify gesetzt)
 - Persistentes Volume für Modelle
 - Health Check konfiguriert
-- Beide Ports (8000, 8501) freigegeben
+- Ports: 8005 (extern) → 8000 (intern FastAPI), 8501 (Streamlit UI)
 
 ---
 
@@ -111,7 +112,7 @@ LOG_LEVEL=INFO
 
 ### Health Check:
 ```bash
-curl http://deine-coolify-url:8000/api/health
+curl http://deine-coolify-url:8005/api/health
 ```
 
 ### Streamlit UI:
