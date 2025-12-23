@@ -9,9 +9,19 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends curl supervisor && \
     rm -rf /var/lib/apt/lists/*
 
+# Python Dependencies installieren (mit Build-Cache)
+# Installiere zuerst System-Dependencies für ML-Pakete
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # Python Dependencies installieren
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
 # App-Code kopieren
 COPY app/ ./app/

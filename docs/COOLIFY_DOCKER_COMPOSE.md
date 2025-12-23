@@ -124,6 +124,38 @@ http://deine-coolify-url:8501
 
 ## 🔧 Troubleshooting
 
+### Problem: Build hängt bei "Pulling & building required images" oder "pip install"
+
+**⚠️ HÄUFIGE URSACHE:** ML-Pakete (scikit-learn, xgboost) brauchen sehr lange zum Kompilieren!
+
+**Lösung 1: Build-Logs in Coolify prüfen**
+1. **Service → Logs** öffnen
+2. Prüfe ob `pip install` noch läuft (kann 10-20 Minuten dauern!)
+3. ML-Pakete kompilieren C-Code, das braucht Zeit
+
+**Lösung 2: Build-Zeit reduzieren (Dockerfile optimiert)**
+- Das Dockerfile wurde bereits optimiert mit Build-Dependencies
+- Erste Installation kann trotzdem 15-30 Minuten dauern
+- Nachfolgende Builds sind schneller (Docker Layer Cache)
+
+**Lösung 3: Ressourcen prüfen**
+1. **Settings → Resources**
+2. **CPU:** Mindestens 2 Cores (4 empfohlen)
+3. **RAM:** Mindestens 4GB (8GB empfohlen)
+4. Zu wenig Ressourcen → Build hängt oder bricht ab
+
+**Lösung 4: Build manuell abbrechen und neu starten**
+- Falls Build >30 Minuten hängt → Abbrechen
+- Prüfe Logs auf Fehler
+- Erneut deployen (Docker Cache hilft beim 2. Versuch)
+
+**Lösung 5: Pre-built Images verwenden (falls verfügbar)**
+- Falls du bereits ein gebautes Image hast, kannst du `image:` statt `build:` verwenden
+
+---
+
+## 🔧 Troubleshooting
+
 ### Problem: "failed to read dockerfile: open Dockerfile: no such file or directory"
 
 **⚠️ HÄUFIGSTE URSACHE:** Source ist nicht auf "Git Repository" gesetzt!
