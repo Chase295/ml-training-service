@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  ml-training:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ml-training-service
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # FastAPI (Health + Metrics + API)
+      - "8501:8501"  # Streamlit UI
+    environment:
+      # ⚠️ EXTERNE Datenbank (nicht im Docker-Compose!)
+      # Wird in Coolify als Environment Variable gesetzt
+      - DB_DSN=${DB_DSN}
+      - API_PORT=8000
+      - STREAMLIT_PORT=8501
+      - MODEL_STORAGE_PATH=/app/models
+      # ⚠️ WICHTIG: Öffentliche URL verwenden, nicht localhost!
+      - API_BASE_URL=${API_BASE_URL:-http://localhost:8000}
+      - JOB_POLL_INTERVAL=${JOB_POLL_INTERVAL:-5}
+      - MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS:-2}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-text}
+    volumes:
+      # Persistente Modell-Speicherung
+      - ml-training-models:/app/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # ⚠️ RAM-Management: Wird in Coolify konfiguriert
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 8G
+    #     reservations:
+    #       memory: 4G
+
+volumes:
+  ml-training-models:
+    driver: local
+
