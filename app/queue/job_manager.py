@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from app.database.models import (
     get_next_pending_job, update_job_status, get_job,
-    create_model, create_test_result, create_comparison
+    create_model, create_test_result, get_or_create_test_result, create_comparison
 )
 from app.training.engine import train_model
 from app.training.model_loader import test_model
@@ -370,6 +370,10 @@ async def process_test_job(job: Dict[str, Any]) -> None:
 async def process_compare_job(job: Dict[str, Any]) -> None:
     """
     Verarbeitet COMPARE Job: Vergleicht zwei Modelle
+    
+    ✅ NEUE STRUKTUR:
+    - Erstellt/findet Test-Ergebnisse für beide Modelle
+    - Verwendet Test-IDs für Vergleich (verhindert Duplikate)
     """
     logger.info(f"⚖️ Verarbeite COMPARE Job {job['id']}")
     
@@ -384,7 +388,7 @@ async def process_compare_job(job: Dict[str, Any]) -> None:
     # 2. Update Progress
     await update_job_status(job['id'], status="RUNNING", progress=0.1, progress_msg="Teste Modell A...")
     
-    # 3. Teste Modell A
+    # 3. Teste Modell A (erstellt oder findet existierendes Test-Ergebnis)
     result_a = await test_model(
         model_id=model_a_id,
         test_start=test_start,
@@ -394,10 +398,56 @@ async def process_compare_job(job: Dict[str, Any]) -> None:
     
     logger.info(f"✅ Modell A: Accuracy={result_a['accuracy']:.4f}, F1={result_a['f1_score']:.4f}")
     
+    # 3.5. Erstelle/finde Test-Ergebnis A in DB
+    test_start_dt = test_start
+    test_end_dt = test_end
+    if isinstance(test_start_dt, str):
+        test_start_dt = datetime.fromisoformat(test_start_dt.replace('Z', '+00:00'))
+    if isinstance(test_end_dt, str):
+        test_end_dt = datetime.fromisoformat(test_end_dt.replace('Z', '+00:00'))
+    if test_start_dt.tzinfo is None:
+        test_start_dt = test_start_dt.replace(tzinfo=timezone.utc)
+    if test_end_dt.tzinfo is None:
+        test_end_dt = test_end_dt.replace(tzinfo=timezone.utc)
+    
+    test_a_id = await get_or_create_test_result(
+        model_id=model_a_id,
+        test_start=test_start_dt,
+        test_end=test_end_dt,
+        accuracy=result_a['accuracy'],
+        f1_score=result_a['f1_score'],
+        precision_score=result_a['precision_score'],
+        recall=result_a['recall'],
+        roc_auc=result_a.get('roc_auc'),
+        mcc=result_a.get('mcc'),
+        fpr=result_a.get('fpr'),
+        fnr=result_a.get('fnr'),
+        simulated_profit_pct=result_a.get('simulated_profit_pct'),
+        confusion_matrix=result_a.get('confusion_matrix'),
+        tp=result_a['tp'],
+        tn=result_a['tn'],
+        fp=result_a['fp'],
+        fn=result_a['fn'],
+        num_samples=result_a['num_samples'],
+        num_positive=result_a['num_positive'],
+        num_negative=result_a['num_negative'],
+        has_overlap=result_a['has_overlap'],
+        overlap_note=result_a.get('overlap_note'),
+        train_accuracy=result_a.get('train_accuracy'),
+        train_f1=result_a.get('train_f1'),
+        train_precision=result_a.get('train_precision'),
+        train_recall=result_a.get('train_recall'),
+        accuracy_degradation=result_a.get('accuracy_degradation'),
+        f1_degradation=result_a.get('f1_degradation'),
+        is_overfitted=result_a.get('is_overfitted'),
+        test_duration_days=result_a.get('test_duration_days')
+    )
+    logger.info(f"✅ Test-Ergebnis A: ID {test_a_id}")
+    
     # 4. Update Progress
     await update_job_status(job['id'], status="RUNNING", progress=0.5, progress_msg="Teste Modell B...")
     
-    # 5. Teste Modell B
+    # 5. Teste Modell B (erstellt oder findet existierendes Test-Ergebnis)
     result_b = await test_model(
         model_id=model_b_id,
         test_start=test_start,
@@ -406,6 +456,41 @@ async def process_compare_job(job: Dict[str, Any]) -> None:
     )
     
     logger.info(f"✅ Modell B: Accuracy={result_b['accuracy']:.4f}, F1={result_b['f1_score']:.4f}")
+    
+    # 5.5. Erstelle/finde Test-Ergebnis B in DB
+    test_b_id = await get_or_create_test_result(
+        model_id=model_b_id,
+        test_start=test_start_dt,
+        test_end=test_end_dt,
+        accuracy=result_b['accuracy'],
+        f1_score=result_b['f1_score'],
+        precision_score=result_b['precision_score'],
+        recall=result_b['recall'],
+        roc_auc=result_b.get('roc_auc'),
+        mcc=result_b.get('mcc'),
+        fpr=result_b.get('fpr'),
+        fnr=result_b.get('fnr'),
+        simulated_profit_pct=result_b.get('simulated_profit_pct'),
+        confusion_matrix=result_b.get('confusion_matrix'),
+        tp=result_b['tp'],
+        tn=result_b['tn'],
+        fp=result_b['fp'],
+        fn=result_b['fn'],
+        num_samples=result_b['num_samples'],
+        num_positive=result_b['num_positive'],
+        num_negative=result_b['num_negative'],
+        has_overlap=result_b['has_overlap'],
+        overlap_note=result_b.get('overlap_note'),
+        train_accuracy=result_b.get('train_accuracy'),
+        train_f1=result_b.get('train_f1'),
+        train_precision=result_b.get('train_precision'),
+        train_recall=result_b.get('train_recall'),
+        accuracy_degradation=result_b.get('accuracy_degradation'),
+        f1_degradation=result_b.get('f1_degradation'),
+        is_overfitted=result_b.get('is_overfitted'),
+        test_duration_days=result_b.get('test_duration_days')
+    )
+    logger.info(f"✅ Test-Ergebnis B: ID {test_b_id}")
     
     # 6. Bestimme Gewinner (verbessert: berücksichtigt F1, MCC und Profit)
     winner_id = None
@@ -443,61 +528,17 @@ async def process_compare_job(job: Dict[str, Any]) -> None:
     await update_job_status(job['id'], status="RUNNING", progress=0.8, progress_msg="Speichere Vergleich...")
     
     # 8. Erstelle Eintrag in ml_comparisons Tabelle
-    # ⚠️ WICHTIG: UTC-Zeitstempel verwenden!
-    test_start_dt = test_start
-    test_end_dt = test_end
-    if isinstance(test_start_dt, str):
-        test_start_dt = datetime.fromisoformat(test_start_dt.replace('Z', '+00:00'))
-    if isinstance(test_end_dt, str):
-        test_end_dt = datetime.fromisoformat(test_end_dt.replace('Z', '+00:00'))
-    
-    # Stelle sicher, dass Zeitzone UTC ist
-    if test_start_dt.tzinfo is None:
-        test_start_dt = test_start_dt.replace(tzinfo=timezone.utc)
-    if test_end_dt.tzinfo is None:
-        test_end_dt = test_end_dt.replace(tzinfo=timezone.utc)
-    
+    # ✅ NEUE STRUKTUR: Verwende test_a_id und test_b_id (verhindert Duplikate!)
     comparison_id = await create_comparison(
         model_a_id=model_a_id,
         model_b_id=model_b_id,
         test_start=test_start_dt,
         test_end=test_end_dt,
+        test_a_id=test_a_id,  # ✅ NEU: Verweis auf Test-Ergebnis A
+        test_b_id=test_b_id,  # ✅ NEU: Verweis auf Test-Ergebnis B
         num_samples=result_a['num_samples'],  # Beide sollten gleich sein
-        # Basis-Metriken Modell A
-        a_accuracy=result_a['accuracy'],
-        a_f1=result_a['f1_score'],
-        a_precision=result_a['precision_score'],
-        a_recall=result_a['recall'],
-        # Basis-Metriken Modell B
-        b_accuracy=result_b['accuracy'],
-        b_f1=result_b['f1_score'],
-        b_precision=result_b['precision_score'],
-        b_recall=result_b['recall'],
-        # Zusätzliche Metriken Modell A
-        a_mcc=result_a.get('mcc'),
-        a_fpr=result_a.get('fpr'),
-        a_fnr=result_a.get('fnr'),
-        a_simulated_profit_pct=result_a.get('simulated_profit_pct'),
-        a_confusion_matrix=result_a.get('confusion_matrix'),
-        a_train_accuracy=result_a.get('train_accuracy'),
-        a_train_f1=result_a.get('train_f1'),
-        a_accuracy_degradation=result_a.get('accuracy_degradation'),
-        a_f1_degradation=result_a.get('f1_degradation'),
-        a_is_overfitted=result_a.get('is_overfitted'),
-        a_test_duration_days=result_a.get('test_duration_days'),
-        # Zusätzliche Metriken Modell B
-        b_mcc=result_b.get('mcc'),
-        b_fpr=result_b.get('fpr'),
-        b_fnr=result_b.get('fnr'),
-        b_simulated_profit_pct=result_b.get('simulated_profit_pct'),
-        b_confusion_matrix=result_b.get('confusion_matrix'),
-        b_train_accuracy=result_b.get('train_accuracy'),
-        b_train_f1=result_b.get('train_f1'),
-        b_accuracy_degradation=result_b.get('accuracy_degradation'),
-        b_f1_degradation=result_b.get('f1_degradation'),
-        b_is_overfitted=result_b.get('is_overfitted'),
-        b_test_duration_days=result_b.get('test_duration_days'),
         winner_id=winner_id
+        # ⚠️ Metriken werden NICHT mehr gespeichert - werden aus Test-Ergebnissen geholt (JOIN)
     )
     
     logger.info(f"✅ Vergleich erstellt: ID {comparison_id}")

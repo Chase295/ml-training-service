@@ -356,7 +356,7 @@ async def delete_model(model_id: int) -> bool:
 # ml_test_results - CRUD Operationen
 # ============================================================
 
-async def create_test_result(
+async def get_or_create_test_result(
     model_id: int,
     test_start: datetime,
     test_end: datetime,
@@ -393,13 +393,33 @@ async def create_test_result(
     # Test-Zeitraum Info (Phase 2)
     test_duration_days: Optional[float] = None
 ) -> int:
-    """Erstellt ein Test-Ergebnis"""
+    """
+    Erstellt ein Test-Ergebnis ODER gibt existierendes zurück
+    
+    ✅ NEU: Verhindert Duplikate durch UNIQUE Constraint (model_id + test_start + test_end)
+    """
     pool = await get_pool()
+    
+    # Prüfe zuerst, ob Test bereits existiert
+    existing_test = await pool.fetchrow(
+        """
+        SELECT id FROM ml_test_results
+        WHERE model_id = $1 AND test_start = $2 AND test_end = $3
+        LIMIT 1
+        """,
+        model_id, test_start, test_end
+    )
+    
+    if existing_test:
+        test_id = existing_test['id']
+        logger.info(f"ℹ️ Test-Ergebnis existiert bereits: ID {test_id} für Modell {model_id} (Zeitraum: {test_start} - {test_end})")
+        return test_id
     
     # Konvertiere JSONB-Felder (refactored: nutze Helper-Funktion)
     confusion_matrix_jsonb = to_jsonb(confusion_matrix)
     feature_importance_jsonb = to_jsonb(feature_importance)
     
+    # Erstelle neues Test-Ergebnis (ON CONFLICT verhindert Duplikate)
     test_id = await pool.fetchval(
         """
         INSERT INTO ml_test_results (
@@ -415,7 +435,38 @@ async def create_test_result(
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb,
             $24, $25, $26, $27, $28, $29, $30, $31
-        ) RETURNING id
+        )
+        ON CONFLICT (model_id, test_start, test_end) 
+        DO UPDATE SET 
+            accuracy = EXCLUDED.accuracy,
+            f1_score = EXCLUDED.f1_score,
+            precision_score = EXCLUDED.precision_score,
+            recall = EXCLUDED.recall,
+            roc_auc = EXCLUDED.roc_auc,
+            mcc = EXCLUDED.mcc,
+            fpr = EXCLUDED.fpr,
+            fnr = EXCLUDED.fnr,
+            simulated_profit_pct = EXCLUDED.simulated_profit_pct,
+            confusion_matrix = EXCLUDED.confusion_matrix,
+            tp = EXCLUDED.tp,
+            tn = EXCLUDED.tn,
+            fp = EXCLUDED.fp,
+            fn = EXCLUDED.fn,
+            num_samples = EXCLUDED.num_samples,
+            num_positive = EXCLUDED.num_positive,
+            num_negative = EXCLUDED.num_negative,
+            has_overlap = EXCLUDED.has_overlap,
+            overlap_note = EXCLUDED.overlap_note,
+            feature_importance = EXCLUDED.feature_importance,
+            train_accuracy = EXCLUDED.train_accuracy,
+            train_f1 = EXCLUDED.train_f1,
+            train_precision = EXCLUDED.train_precision,
+            train_recall = EXCLUDED.train_recall,
+            accuracy_degradation = EXCLUDED.accuracy_degradation,
+            f1_degradation = EXCLUDED.f1_degradation,
+            is_overfitted = EXCLUDED.is_overfitted,
+            test_duration_days = EXCLUDED.test_duration_days
+        RETURNING id
         """,
         model_id, test_start, test_end,
         accuracy, f1_score, precision_score, recall, roc_auc,
@@ -429,6 +480,11 @@ async def create_test_result(
     )
     logger.info(f"✅ Test-Ergebnis erstellt: ID {test_id} für Modell {model_id}")
     return test_id
+
+# Alias für Rückwärtskompatibilität
+async def create_test_result(*args, **kwargs) -> int:
+    """Alias für get_or_create_test_result (Rückwärtskompatibilität)"""
+    return await get_or_create_test_result(*args, **kwargs)
 
 async def get_test_result(test_id: int) -> Optional[Dict[str, Any]]:
     """Holt ein einzelnes Test-Ergebnis"""
@@ -503,6 +559,8 @@ async def create_comparison(
     model_b_id: int,
     test_start: datetime,
     test_end: datetime,
+    test_a_id: Optional[int] = None,  # ✅ NEU: Verweis auf Test-Ergebnis A
+    test_b_id: Optional[int] = None,  # ✅ NEU: Verweis auf Test-Ergebnis B
     num_samples: Optional[int] = None,
     a_accuracy: Optional[float] = None,
     a_f1: Optional[float] = None,
@@ -546,39 +604,61 @@ async def create_comparison(
     a_confusion_matrix_jsonb = to_jsonb(a_confusion_matrix)
     b_confusion_matrix_jsonb = to_jsonb(b_confusion_matrix)
     
+    # ✅ NEU: Prüfe ob test_a_id und test_b_id gesetzt sind (neue Struktur)
+    # Falls nicht, verwende alte Struktur (Rückwärtskompatibilität)
+    use_new_structure = test_a_id is not None and test_b_id is not None
+    
     try:
-        comparison_id = await pool.fetchval(
-            """
-            INSERT INTO ml_comparisons (
+        if use_new_structure:
+            # ✅ NEUE STRUKTUR: Verweise auf Test-Ergebnisse
+            comparison_id = await pool.fetchval(
+                """
+                INSERT INTO ml_comparisons (
+                    model_a_id, model_b_id, test_start, test_end,
+                    test_a_id, test_b_id,  -- ✅ NEU: Verweise auf Test-Ergebnisse
+                    num_samples, winner_id
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8
+                ) RETURNING id
+                """,
+                model_a_id, model_b_id, test_start, test_end,
+                test_a_id, test_b_id,
+                num_samples, winner_id
+            )
+        else:
+            # ⚠️ ALTE STRUKTUR: Alle Metriken werden gespeichert (Rückwärtskompatibilität)
+            comparison_id = await pool.fetchval(
+                """
+                INSERT INTO ml_comparisons (
+                    model_a_id, model_b_id, test_start, test_end, num_samples,
+                    a_accuracy, a_f1, a_precision, a_recall,
+                    b_accuracy, b_f1, b_precision, b_recall,
+                    winner_id,
+                    a_mcc, a_fpr, a_fnr, a_simulated_profit_pct, a_confusion_matrix,
+                    a_train_accuracy, a_train_f1, a_accuracy_degradation, a_f1_degradation,
+                    a_is_overfitted, a_test_duration_days,
+                    b_mcc, b_fpr, b_fnr, b_simulated_profit_pct, b_confusion_matrix,
+                    b_train_accuracy, b_train_f1, b_accuracy_degradation, b_f1_degradation,
+                    b_is_overfitted, b_test_duration_days
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                    $15, $16, $17, $18, $19::jsonb,
+                    $20, $21, $22, $23, $24, $25,
+                    $26, $27, $28, $29, $30::jsonb,
+                    $31, $32, $33, $34, $35, $36
+                ) RETURNING id
+                """,
                 model_a_id, model_b_id, test_start, test_end, num_samples,
                 a_accuracy, a_f1, a_precision, a_recall,
                 b_accuracy, b_f1, b_precision, b_recall,
                 winner_id,
-                a_mcc, a_fpr, a_fnr, a_simulated_profit_pct, a_confusion_matrix,
+                a_mcc, a_fpr, a_fnr, a_simulated_profit_pct, a_confusion_matrix_jsonb,
                 a_train_accuracy, a_train_f1, a_accuracy_degradation, a_f1_degradation,
                 a_is_overfitted, a_test_duration_days,
-                b_mcc, b_fpr, b_fnr, b_simulated_profit_pct, b_confusion_matrix,
+                b_mcc, b_fpr, b_fnr, b_simulated_profit_pct, b_confusion_matrix_jsonb,
                 b_train_accuracy, b_train_f1, b_accuracy_degradation, b_f1_degradation,
                 b_is_overfitted, b_test_duration_days
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                $15, $16, $17, $18, $19::jsonb,
-                $20, $21, $22, $23, $24, $25,
-                $26, $27, $28, $29, $30::jsonb,
-                $31, $32, $33, $34, $35, $36
-            ) RETURNING id
-            """,
-            model_a_id, model_b_id, test_start, test_end, num_samples,
-            a_accuracy, a_f1, a_precision, a_recall,
-            b_accuracy, b_f1, b_precision, b_recall,
-            winner_id,
-            a_mcc, a_fpr, a_fnr, a_simulated_profit_pct, a_confusion_matrix_jsonb,
-            a_train_accuracy, a_train_f1, a_accuracy_degradation, a_f1_degradation,
-            a_is_overfitted, a_test_duration_days,
-            b_mcc, b_fpr, b_fnr, b_simulated_profit_pct, b_confusion_matrix_jsonb,
-            b_train_accuracy, b_train_f1, b_accuracy_degradation, b_f1_degradation,
-            b_is_overfitted, b_test_duration_days
-        )
+            )
     except Exception as e:
         error_str = str(e).lower()
         if any(col in error_str for col in ['a_mcc', 'b_mcc', 'a_fpr', 'b_fpr', 'a_confusion_matrix', 'b_confusion_matrix']):
