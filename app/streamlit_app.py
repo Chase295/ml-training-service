@@ -73,12 +73,15 @@ def api_patch(endpoint: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 # Verfügbare Features (aus coin_metrics)
 # ⚠️ WICHTIG: Nur Spalten die tatsächlich in der Datenbank existieren!
 # Diese Liste muss mit den tatsächlichen Spalten in coin_metrics übereinstimmen!
+# ⚠️ HINWEIS: market_cap_open, market_cap_high, market_cap_low existieren NICHT!
+# Nur market_cap_close ist verfügbar!
 AVAILABLE_FEATURES = [
     "price_open", "price_high", "price_low", "price_close",
     "volume_sol",
-    "market_cap_open", "market_cap_high", "market_cap_low", "market_cap_close"
+    "market_cap_close"  # ⚠️ Nur market_cap_close existiert, nicht market_cap_open/high/low!
     # ⚠️ Folgende Spalten existieren NICHT in der Datenbank:
     # - volume_usd
+    # - market_cap_open, market_cap_high, market_cap_low
     # - order_buy_count, order_sell_count
     # - order_buy_volume, order_sell_volume
     # - whale_buy_count, whale_sell_count
@@ -1179,11 +1182,12 @@ def page_train():
                     st.success(f"✅ Job erstellt! Job-ID: {result.get('job_id')}")
                     st.info(f"📊 Status: {result.get('status')}. Das Modell wird jetzt trainiert.")
                     st.balloons()
-                    
-                    # Weiterleitung zu Jobs-Seite
-                    if st.button("📊 Zu Jobs anzeigen"):
-                        st.session_state['page'] = 'jobs'
-                        st.rerun()
+            
+            # ⚠️ WICHTIG: Button muss AUSSERHALB des Forms sein!
+            # Weiterleitung zu Jobs-Seite
+            if st.button("📊 Zu Jobs anzeigen", key="goto_jobs_after_train"):
+                st.session_state['page'] = 'jobs'
+                st.rerun()
 
 def page_test():
     """Modell testen"""

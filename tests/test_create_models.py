@@ -100,10 +100,11 @@ def main():
     
     # Standard-Features (nur Spalten die definitiv existieren)
     # ⚠️ WICHTIG: Nur grundlegende Spalten verwenden!
+    # ⚠️ HINWEIS: market_cap_open, market_cap_high, market_cap_low existieren NICHT!
     default_features = [
         "price_open", "price_high", "price_low", "price_close",
         "volume_sol",
-        "market_cap_close"
+        "market_cap_close"  # Nur market_cap_close existiert!
     ]
     
     # Modell 1: Random Forest - 10 Minuten, 30% Änderung
