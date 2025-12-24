@@ -122,15 +122,12 @@ async def process_train_job(job: Dict[str, Any]) -> None:
         phases_count=len(phases) if isinstance(phases, list) else 0
     )
     
-    # 2. Hole Job-Parameter (bereits oben geholt)
-    # model_type wird weiter unten verwendet
+    # 2. Hole Job-Parameter (features und phases bereits oben geholt)
     target_var = job['train_target_var']  # Kann None sein wenn zeitbasierte Vorhersage aktiviert
     target_operator = job['train_operator']  # Kann None sein wenn zeitbasierte Vorhersage aktiviert
     target_value = float(job['train_value']) if job['train_value'] is not None else None  # Kann None sein
     train_start = job['train_start']
     train_end = job['train_end']
-    features = job['train_features']  # JSONB → Python List (asyncpg konvertiert automatisch)
-    phases = job['train_phases']  # JSONB → Python List oder None
     params = job['train_params']  # JSONB → Python Dict oder None
     
     # NEU: Extrahiere zeitbasierte Parameter aus train_params
