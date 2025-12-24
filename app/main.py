@@ -75,7 +75,22 @@ async def startup():
         asyncio.create_task(start_worker())
         logger.info("✅ Job Worker gestartet")
         
-        logger.info("✅ Service gestartet: DB verbunden, Worker läuft")
+        # Starte Background-Task für Job-Metriken (alle 5 Sekunden)
+        from app.utils.metrics import update_all_job_metrics
+        async def metrics_updater():
+            """Aktualisiert regelmäßig Job-Metriken für Prometheus/Grafana"""
+            while True:
+                try:
+                    await update_all_job_metrics()
+                    await asyncio.sleep(5)  # Alle 5 Sekunden aktualisieren
+                except Exception as e:
+                    logger.error(f"Fehler beim Aktualisieren der Job-Metriken: {e}", exc_info=True)
+                    await asyncio.sleep(5)
+        
+        asyncio.create_task(metrics_updater())
+        logger.info("✅ Job-Metriken-Updater gestartet (alle 5 Sekunden)")
+        
+        logger.info("✅ Service gestartet: DB verbunden, Worker läuft, Metriken-Updater aktiv")
     except Exception as e:
         logger.error(f"❌ Fehler beim Startup: {e}")
         raise

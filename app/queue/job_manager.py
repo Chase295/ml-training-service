@@ -14,7 +14,8 @@ from app.training.engine import train_model
 from app.training.model_loader import test_model
 from app.utils.config import JOB_POLL_INTERVAL, MAX_CONCURRENT_JOBS, MODEL_STORAGE_PATH
 from app.utils.metrics import (
-    ml_jobs_total, increment_job_counter, update_active_jobs
+    ml_jobs_total, increment_job_counter, update_active_jobs,
+    update_job_metrics, update_job_feature_metrics
 )
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,19 @@ async def process_job(job_id: int) -> None:
     except Exception as e:
         # Job fehlgeschlagen
         error_msg = str(e)
-        logger.error(f"❌ Job {job_id} fehlgeschlagen: {error_msg}")
+        logger.error(f"❌ Job {job_id} fehlgeschlagen: {error_msg}", exc_info=True)
+        
+        # Update Metriken: Job fehlgeschlagen
+        model_type = job.get('train_model_type') or job.get('test_model_id') or 'unknown'
+        update_job_metrics(
+            job_id=job_id,
+            job_type=job_type,
+            model_type=model_type,
+            status='FAILED',
+            progress=0.0,
+            duration_seconds=None
+        )
+        
         await update_job_status(
             job_id,
             status="FAILED",
@@ -78,18 +91,39 @@ async def process_train_job(job: Dict[str, Any]) -> None:
     
     ⚠️ KRITISCH: Training läuft in run_in_executor (CPU-bound)!
     """
-    logger.info(f"🎯 Verarbeite TRAIN Job {job['id']}")
+    job_id = job['id']
+    logger.info(f"🎯 Verarbeite TRAIN Job {job_id}")
+    logger.info(f"📋 Job-Details: Typ={job.get('train_model_type')}, Features={len(job.get('train_features', []))}, Phasen={job.get('train_phases')}")
     
     # 1. ⚠️ KRITISCH: Hole Modell-Name aus progress_msg BEVOR es überschrieben wird!
     # Der Name wurde beim Job-Erstellen in progress_msg gespeichert
-    model_name = job.get('progress_msg') or f"Model_{job['id']}"
+    model_name = job.get('progress_msg') or f"Model_{job_id}"
     logger.info(f"📝 Modell-Name: {model_name}")
     
     # ⚠️ WICHTIG: Speichere den ursprünglichen Namen, falls progress_msg später überschrieben wird
     original_model_name = model_name
     
-    # 2. Hole Job-Parameter
-    model_type = job['train_model_type']
+    # Update Metriken: Job gestartet
+    model_type = job.get('train_model_type', 'unknown')
+    features = job.get('train_features', [])
+    phases = job.get('train_phases', [])
+    update_job_metrics(
+        job_id=job_id,
+        job_type='TRAIN',
+        model_type=model_type,
+        status='RUNNING',
+        progress=0.1,
+        duration_seconds=0
+    )
+    update_job_feature_metrics(
+        job_id=job_id,
+        job_type='TRAIN',
+        features_count=len(features) if isinstance(features, list) else 0,
+        phases_count=len(phases) if isinstance(phases, list) else 0
+    )
+    
+    # 2. Hole Job-Parameter (bereits oben geholt)
+    # model_type wird weiter unten verwendet
     target_var = job['train_target_var']  # Kann None sein wenn zeitbasierte Vorhersage aktiviert
     target_operator = job['train_operator']  # Kann None sein wenn zeitbasierte Vorhersage aktiviert
     target_value = float(job['train_value']) if job['train_value'] is not None else None  # Kann None sein
@@ -120,7 +154,8 @@ async def process_train_job(job: Dict[str, Any]) -> None:
     logger.info(f"📋 Training-Parameter: {model_type}, Features: {len(features) if features else 0}")
     
     # 3. Update Progress
-    await update_job_status(job['id'], status="RUNNING", progress=0.1, progress_msg="Lade Trainingsdaten...")
+    await update_job_status(job_id, status="RUNNING", progress=0.1, progress_msg="Lade Trainingsdaten...")
+    logger.info(f"📊 Job {job_id}: Status auf RUNNING gesetzt, Progress: 0.1%")
     
     # 4. ⚠️ KRITISCH: Training in run_in_executor ausführen (CPU-bound!)
     # train_model() nutzt bereits intern run_in_executor für model.fit(),
@@ -128,6 +163,7 @@ async def process_train_job(job: Dict[str, Any]) -> None:
     logger.info(f"🔄 Starte Training (blockiert Event Loop nicht)...")
     
     # 5. Führe Training aus (async, nutzt intern run_in_executor)
+    logger.info(f"🔄 Job {job_id}: Starte Training... (kann mehrere Minuten dauern)")
     training_result = await train_model(
         model_type=model_type,
         features=features,
@@ -146,10 +182,46 @@ async def process_train_job(job: Dict[str, Any]) -> None:
         direction=direction
     )
     
-    logger.info(f"✅ Training abgeschlossen: Accuracy={training_result['accuracy']:.4f}")
+    logger.info(f"✅ Job {job_id}: Training abgeschlossen - Accuracy={training_result['accuracy']:.4f}, F1={training_result['f1']:.4f}")
+    
+    # Update Metriken: Training abgeschlossen (50% Progress)
+    from datetime import datetime, timezone
+    started_at = job.get('started_at')
+    duration = 0
+    if started_at:
+        try:
+            if isinstance(started_at, str):
+                started_dt = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+            else:
+                started_dt = started_at
+            if started_dt.tzinfo is None:
+                started_dt = started_dt.replace(tzinfo=timezone.utc)
+            duration = (datetime.now(timezone.utc) - started_dt).total_seconds()
+        except:
+            pass
+    
+    update_job_metrics(
+        job_id=job_id,
+        job_type='TRAIN',
+        model_type=model_type,
+        status='RUNNING',
+        progress=50.0,
+        duration_seconds=duration
+    )
     
     # 6. Update Progress
-    await update_job_status(job['id'], status="RUNNING", progress=0.8, progress_msg="Speichere Modell in DB...")
+    await update_job_status(job_id, status="RUNNING", progress=0.8, progress_msg="Speichere Modell in DB...")
+    logger.info(f"📊 Job {job_id}: Speichere Modell in DB... (Progress: 80%)")
+    
+    # Update Metriken: Modell wird gespeichert
+    update_job_metrics(
+        job_id=job_id,
+        job_type='TRAIN',
+        model_type=model_type,
+        status='RUNNING',
+        progress=80.0,
+        duration_seconds=duration
+    )
     
     # 6.5. Hole erweiterte Features aus Training-Result (inkl. engineered features)
     # ⚠️ WICHTIG: Wenn Feature-Engineering aktiviert war, enthält training_result['features'] die erweiterte Liste!
@@ -208,18 +280,44 @@ async def process_train_job(job: Dict[str, Any]) -> None:
         target_direction=train_target_direction
     )
     
-    logger.info(f"✅ Modell erstellt: ID {model_id}, Name: {original_model_name}")
+    logger.info(f"✅ Job {job_id}: Modell erstellt - ID {model_id}, Name: {original_model_name}")
     
     # 8. Setze result_model_id im Job
     await update_job_status(
-        job['id'],
+        job_id,
         status="COMPLETED",
         progress=1.0,
         result_model_id=model_id,
         progress_msg=f"Modell {original_model_name} erfolgreich erstellt"
     )
     
-    logger.info(f"🎉 TRAIN Job {job['id']} erfolgreich: Modell {model_id} erstellt")
+    # Update Metriken: Job abgeschlossen
+    final_duration = 0
+    if started_at:
+        try:
+            if isinstance(started_at, str):
+                started_dt = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+            else:
+                started_dt = started_at
+            if started_dt.tzinfo is None:
+                started_dt = started_dt.replace(tzinfo=timezone.utc)
+            final_duration = (datetime.now(timezone.utc) - started_dt).total_seconds()
+        except:
+            pass
+    
+    update_job_metrics(
+        job_id=job_id,
+        job_type='TRAIN',
+        model_type=model_type,
+        status='COMPLETED',
+        progress=100.0,
+        duration_seconds=final_duration
+    )
+    
+    # Erhöhe Job-Counter
+    increment_job_counter('TRAIN', 'COMPLETED')
+    
+    logger.info(f"🎉 Job {job_id} erfolgreich abgeschlossen: Modell {model_id} erstellt (Dauer: {final_duration:.1f}s)")
 
 async def process_test_job(job: Dict[str, Any]) -> None:
     """

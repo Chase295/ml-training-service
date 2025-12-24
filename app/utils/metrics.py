@@ -61,6 +61,37 @@ ml_active_jobs = Gauge(
     'Number of currently active jobs'
 )
 
+# Job Progress & Status Metrics (für Grafana)
+ml_job_progress = Gauge(
+    'ml_job_progress_percent',
+    'Current progress of a job in percent (0-100)',
+    ['job_id', 'job_type', 'model_type']
+)
+
+ml_job_duration_seconds = Gauge(
+    'ml_job_duration_seconds',
+    'Current duration of a running job in seconds',
+    ['job_id', 'job_type', 'model_type']
+)
+
+ml_job_status = Gauge(
+    'ml_job_status',
+    'Job status (1=PENDING, 2=RUNNING, 3=COMPLETED, 4=FAILED, 5=CANCELLED)',
+    ['job_id', 'job_type', 'model_type', 'status']
+)
+
+ml_job_features_count = Gauge(
+    'ml_job_features_count',
+    'Number of features used in a job',
+    ['job_id', 'job_type']
+)
+
+ml_job_phases_count = Gauge(
+    'ml_job_phases_count',
+    'Number of phases used in a job',
+    ['job_id', 'job_type']
+)
+
 # ============================================================
 # Health Status
 # ============================================================
@@ -159,4 +190,142 @@ def update_test_accuracy(model_id: int, accuracy: float):
 def increment_jobs_processed():
     """Erhöht Counter für verarbeitete Jobs"""
     health_status["total_jobs_processed"] += 1
+
+# ============================================================
+# Job Progress & Status Update Functions
+# ============================================================
+
+def update_job_metrics(job_id: int, job_type: str, model_type: str, status: str, progress: float, duration_seconds: float = None):
+    """
+    Aktualisiert Prometheus-Metriken für einen Job
+    
+    Args:
+        job_id: Job-ID
+        job_type: TRAIN, TEST, COMPARE
+        model_type: random_forest, xgboost, etc.
+        status: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
+        progress: Progress in Prozent (0-100)
+        duration_seconds: Laufzeit in Sekunden (optional)
+    """
+    # Status-Mapping für Metrik
+    status_map = {
+        'PENDING': 1,
+        'RUNNING': 2,
+        'COMPLETED': 3,
+        'FAILED': 4,
+        'CANCELLED': 5
+    }
+    status_value = status_map.get(status, 0)
+    
+    # Job Progress
+    ml_job_progress.labels(
+        job_id=str(job_id),
+        job_type=job_type,
+        model_type=model_type or 'unknown'
+    ).set(progress)
+    
+    # Job Status (setze alle auf 0, dann aktuelle auf 1)
+    for s in ['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']:
+        ml_job_status.labels(
+            job_id=str(job_id),
+            job_type=job_type,
+            model_type=model_type or 'unknown',
+            status=s
+        ).set(1 if s == status else 0)
+    
+    # Job Duration (nur wenn RUNNING)
+    if duration_seconds is not None and status == 'RUNNING':
+        ml_job_duration_seconds.labels(
+            job_id=str(job_id),
+            job_type=job_type,
+            model_type=model_type or 'unknown'
+        ).set(duration_seconds)
+
+def update_job_feature_metrics(job_id: int, job_type: str, features_count: int, phases_count: int = None):
+    """
+    Aktualisiert Feature- und Phase-Metriken für einen Job
+    
+    Args:
+        job_id: Job-ID
+        job_type: TRAIN, TEST, COMPARE
+        features_count: Anzahl Features
+        phases_count: Anzahl Phasen (optional)
+    """
+    ml_job_features_count.labels(
+        job_id=str(job_id),
+        job_type=job_type
+    ).set(features_count)
+    
+    if phases_count is not None:
+        ml_job_phases_count.labels(
+            job_id=str(job_id),
+            job_type=job_type
+        ).set(phases_count)
+
+async def update_all_job_metrics():
+    """
+    Aktualisiert Metriken für alle aktiven Jobs
+    Wird regelmäßig aufgerufen (z.B. alle 5 Sekunden)
+    """
+    try:
+        from app.database.models import list_jobs
+        from datetime import datetime, timezone
+        
+        # Hole alle RUNNING und PENDING Jobs
+        running_jobs = await list_jobs(status='RUNNING', limit=100)
+        pending_jobs = await list_jobs(status='PENDING', limit=100)
+        all_active_jobs = running_jobs + pending_jobs
+        
+        now = datetime.now(timezone.utc)
+        
+        for job in all_active_jobs:
+            job_id = job.get('id')
+            job_type = job.get('job_type', 'UNKNOWN')
+            model_type = job.get('train_model_type') or job.get('test_model_id') or 'unknown'
+            status = job.get('status', 'UNKNOWN')
+            progress = job.get('progress', 0.0)
+            
+            # Berechne Duration
+            started_at = job.get('started_at')
+            duration_seconds = None
+            if started_at:
+                try:
+                    if isinstance(started_at, str):
+                        started_dt = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                    else:
+                        started_dt = started_at
+                    
+                    if started_dt.tzinfo is None:
+                        started_dt = started_dt.replace(tzinfo=timezone.utc)
+                    
+                    duration_seconds = (now - started_dt).total_seconds()
+                except:
+                    pass
+            
+            # Update Metriken
+            update_job_metrics(
+                job_id=job_id,
+                job_type=job_type,
+                model_type=model_type,
+                status=status,
+                progress=progress,
+                duration_seconds=duration_seconds
+            )
+            
+            # Update Feature/Phase Metriken (nur für TRAIN Jobs)
+            if job_type == 'TRAIN':
+                features = job.get('train_features', [])
+                phases = job.get('train_phases', [])
+                update_job_feature_metrics(
+                    job_id=job_id,
+                    job_type=job_type,
+                    features_count=len(features) if isinstance(features, list) else 0,
+                    phases_count=len(phases) if isinstance(phases, list) else 0
+                )
+        
+        # Update active jobs count
+        update_active_jobs(len(all_active_jobs))
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Aktualisieren der Job-Metriken: {e}", exc_info=True)
 
