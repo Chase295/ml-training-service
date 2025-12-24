@@ -707,9 +707,15 @@ async def update_job_status(
     result_model_id: Optional[int] = None,
     result_test_id: Optional[int] = None,
     result_comparison_id: Optional[int] = None,
-    progress_msg: Optional[str] = None
+    progress_msg: Optional[str] = None,
+    update_metrics: bool = True  # NEU: Metriken automatisch aktualisieren
 ) -> bool:
-    """Aktualisiert Job-Status"""
+    """
+    Aktualisiert Job-Status in DB und optional auch in Prometheus-Metriken
+    
+    Args:
+        update_metrics: Wenn True, werden Prometheus-Metriken auch aktualisiert (für Live-Updates)
+    """
     pool = await get_pool()
     
     updates = ["status = $1"]
@@ -750,7 +756,48 @@ async def update_job_status(
     values.append(job_id)
     query = f"UPDATE ml_jobs SET {', '.join(updates)} WHERE id = ${param_num}"
     await pool.execute(query, *values)
-    logger.info(f"✅ Job aktualisiert: ID {job_id} → {status}")
+    
+    # ✅ NEU: Aktualisiere auch Prometheus-Metriken für Live-Updates
+    if update_metrics and progress is not None:
+        try:
+            from app.utils.metrics import update_job_metrics
+            from datetime import datetime, timezone
+            
+            # Hole Job-Details für Metriken
+            job = await get_job(job_id)
+            if job:
+                job_type = job.get('job_type', 'UNKNOWN')
+                model_type = job.get('train_model_type') or job.get('test_model_id') or 'unknown'
+                
+                # Berechne Duration
+                started_at = job.get('started_at')
+                duration_seconds = None
+                if started_at:
+                    try:
+                        if isinstance(started_at, str):
+                            started_dt = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                        else:
+                            started_dt = started_at
+                        if started_dt.tzinfo is None:
+                            started_dt = started_dt.replace(tzinfo=timezone.utc)
+                        duration_seconds = (datetime.now(timezone.utc) - started_dt).total_seconds()
+                    except:
+                        pass
+                
+                # Update Metriken direkt
+                update_job_metrics(
+                    job_id=job_id,
+                    job_type=job_type,
+                    model_type=model_type,
+                    status=status,
+                    progress=progress * 100.0,  # Konvertiere 0.1 → 10.0
+                    duration_seconds=duration_seconds
+                )
+        except Exception as e:
+            # Fehler bei Metriken-Update sollte Job-Update nicht blockieren
+            logger.warning(f"⚠️ Fehler beim Aktualisieren der Metriken für Job {job_id}: {e}")
+    
+    logger.info(f"✅ Job aktualisiert: ID {job_id} → {status} (Progress: {progress*100 if progress else 'N/A'}%)")
     return True
 
 async def list_jobs(

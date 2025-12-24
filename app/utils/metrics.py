@@ -302,13 +302,36 @@ async def update_all_job_metrics():
                 except:
                     pass
             
+            # ✅ NEU: Progress-Schätzung während des Trainings (wenn Progress bei 20% steht)
+            # Wenn Job RUNNING ist und Progress zwischen 20% und 60%, schätze Progress basierend auf Dauer
+            estimated_progress = progress
+            if status == 'RUNNING' and job_type == 'TRAIN' and 0.2 <= progress < 0.6 and duration_seconds:
+                # Schätze Progress basierend auf typischer Trainingsdauer
+                # Annahme: Training dauert typischerweise 10-30 Minuten
+                # Progress: 20% (Start) → 60% (Ende) = 40% Progress während Training
+                # Schätze basierend auf Dauer: Je länger, desto höher der Progress
+                
+                # Typische Trainingsdauer: 10-30 Minuten (600-1800 Sekunden)
+                # Wenn bereits 5 Minuten vergangen sind, schätze 30% Progress
+                # Wenn bereits 15 Minuten vergangen sind, schätze 50% Progress
+                
+                if duration_seconds < 300:  # < 5 Minuten
+                    estimated_progress = 0.2 + (duration_seconds / 300) * 0.1  # 20% → 30%
+                elif duration_seconds < 900:  # 5-15 Minuten
+                    estimated_progress = 0.3 + ((duration_seconds - 300) / 600) * 0.2  # 30% → 50%
+                else:  # > 15 Minuten
+                    estimated_progress = 0.5 + min(0.1, (duration_seconds - 900) / 1800)  # 50% → 60%
+                
+                # Begrenze auf max 60% (bis Training wirklich abgeschlossen ist)
+                estimated_progress = min(estimated_progress, 0.6)
+            
             # Update Metriken
             update_job_metrics(
                 job_id=job_id,
                 job_type=job_type,
                 model_type=model_type,
                 status=status,
-                progress=progress,
+                progress=estimated_progress * 100.0,  # Konvertiere zu Prozent
                 duration_seconds=duration_seconds
             )
             

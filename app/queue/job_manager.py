@@ -150,16 +150,22 @@ async def process_train_job(job: Dict[str, Any]) -> None:
     
     logger.info(f"📋 Training-Parameter: {model_type}, Features: {len(features) if features else 0}")
     
-    # 3. Update Progress
-    await update_job_status(job_id, status="RUNNING", progress=0.1, progress_msg="Lade Trainingsdaten...")
-    logger.info(f"📊 Job {job_id}: Status auf RUNNING gesetzt, Progress: 0.1%")
+    # 3. Update Progress (10%)
+    await update_job_status(job_id, status="RUNNING", progress=0.1, progress_msg="Lade Trainingsdaten...", update_metrics=True)
+    logger.info(f"📊 Job {job_id}: Status auf RUNNING gesetzt, Progress: 10%")
     
     # 4. ⚠️ KRITISCH: Training in run_in_executor ausführen (CPU-bound!)
+    # ⚠️ WICHTIG: Während des Trainings können wir keine Progress-Updates machen,
+    # da es in einem separaten Thread läuft. Progress wird nach dem Training aktualisiert.
     # train_model() nutzt bereits intern run_in_executor für model.fit(),
     # aber sicherheitshalber auch hier nutzen
     logger.info(f"🔄 Starte Training (blockiert Event Loop nicht)...")
     
-    # 5. Führe Training aus (async, nutzt intern run_in_executor)
+    # 5. Update Progress (20% - Training startet)
+    await update_job_status(job_id, status="RUNNING", progress=0.2, progress_msg="Training startet...", update_metrics=True)
+    logger.info(f"📊 Job {job_id}: Training startet (Progress: 20%)")
+    
+    # 6. Führe Training aus (async, nutzt intern run_in_executor)
     logger.info(f"🔄 Job {job_id}: Starte Training... (kann mehrere Minuten dauern)")
     training_result = await train_model(
         model_type=model_type,
@@ -181,44 +187,13 @@ async def process_train_job(job: Dict[str, Any]) -> None:
     
     logger.info(f"✅ Job {job_id}: Training abgeschlossen - Accuracy={training_result['accuracy']:.4f}, F1={training_result['f1']:.4f}")
     
-    # Update Metriken: Training abgeschlossen (50% Progress)
-    from datetime import datetime, timezone
-    started_at = job.get('started_at')
-    duration = 0
-    if started_at:
-        try:
-            if isinstance(started_at, str):
-                started_dt = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
-            else:
-                started_dt = started_at
-            if started_dt.tzinfo is None:
-                started_dt = started_dt.replace(tzinfo=timezone.utc)
-            duration = (datetime.now(timezone.utc) - started_dt).total_seconds()
-        except:
-            pass
+    # 7. Update Progress (60% - Training abgeschlossen)
+    await update_job_status(job_id, status="RUNNING", progress=0.6, progress_msg="Training abgeschlossen, speichere Modell...", update_metrics=True)
+    logger.info(f"📊 Job {job_id}: Training abgeschlossen (Progress: 60%)")
     
-    update_job_metrics(
-        job_id=job_id,
-        job_type='TRAIN',
-        model_type=model_type,
-        status='RUNNING',
-        progress=50.0,
-        duration_seconds=duration
-    )
-    
-    # 6. Update Progress
-    await update_job_status(job_id, status="RUNNING", progress=0.8, progress_msg="Speichere Modell in DB...")
+    # 8. Update Progress (80% - Modell wird in DB gespeichert)
+    await update_job_status(job_id, status="RUNNING", progress=0.8, progress_msg="Speichere Modell in DB...", update_metrics=True)
     logger.info(f"📊 Job {job_id}: Speichere Modell in DB... (Progress: 80%)")
-    
-    # Update Metriken: Modell wird gespeichert
-    update_job_metrics(
-        job_id=job_id,
-        job_type='TRAIN',
-        model_type=model_type,
-        status='RUNNING',
-        progress=80.0,
-        duration_seconds=duration
-    )
     
     # 6.5. Hole erweiterte Features aus Training-Result (inkl. engineered features)
     # ⚠️ WICHTIG: Wenn Feature-Engineering aktiviert war, enthält training_result['features'] die erweiterte Liste!
@@ -279,42 +254,24 @@ async def process_train_job(job: Dict[str, Any]) -> None:
     
     logger.info(f"✅ Job {job_id}: Modell erstellt - ID {model_id}, Name: {original_model_name}")
     
-    # 8. Setze result_model_id im Job
+    # 9. Update Progress (90% - Modell gespeichert)
+    await update_job_status(job_id, status="RUNNING", progress=0.9, progress_msg="Modell gespeichert, finalisiere...", update_metrics=True)
+    logger.info(f"📊 Job {job_id}: Modell gespeichert (Progress: 90%)")
+    
+    # 10. Setze result_model_id im Job (100% - COMPLETED)
     await update_job_status(
         job_id,
         status="COMPLETED",
         progress=1.0,
         result_model_id=model_id,
-        progress_msg=f"Modell {original_model_name} erfolgreich erstellt"
-    )
-    
-    # Update Metriken: Job abgeschlossen
-    final_duration = 0
-    if started_at:
-        try:
-            if isinstance(started_at, str):
-                started_dt = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
-            else:
-                started_dt = started_at
-            if started_dt.tzinfo is None:
-                started_dt = started_dt.replace(tzinfo=timezone.utc)
-            final_duration = (datetime.now(timezone.utc) - started_dt).total_seconds()
-        except:
-            pass
-    
-    update_job_metrics(
-        job_id=job_id,
-        job_type='TRAIN',
-        model_type=model_type,
-        status='COMPLETED',
-        progress=100.0,
-        duration_seconds=final_duration
+        progress_msg=f"Modell {original_model_name} erfolgreich erstellt",
+        update_metrics=True
     )
     
     # Erhöhe Job-Counter
     increment_job_counter('TRAIN', 'COMPLETED')
     
-    logger.info(f"🎉 Job {job_id} erfolgreich abgeschlossen: Modell {model_id} erstellt (Dauer: {final_duration:.1f}s)")
+    logger.info(f"🎉 Job {job_id} erfolgreich abgeschlossen: Modell {model_id} erstellt (Progress: 100%)")
 
 async def process_test_job(job: Dict[str, Any]) -> None:
     """
