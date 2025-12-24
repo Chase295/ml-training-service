@@ -1105,8 +1105,10 @@ def page_train():
         
         # Submit
         submitted = st.form_submit_button("🚀 Modell trainieren", type="primary", use_container_width=True)
-        
-        if submitted:
+    
+    # ⚠️ WICHTIG: Alles nach dem Form-Block ist außerhalb des Forms!
+    # Verarbeite Form-Submission außerhalb des Forms
+    if submitted:
             # Validierung
             if not model_name:
                 st.error("❌ Modell-Name ist erforderlich!")
@@ -1182,12 +1184,16 @@ def page_train():
                     st.success(f"✅ Job erstellt! Job-ID: {result.get('job_id')}")
                     st.info(f"📊 Status: {result.get('status')}. Das Modell wird jetzt trainiert.")
                     st.balloons()
-            
-            # ⚠️ WICHTIG: Button muss AUSSERHALB des Forms sein!
-            # Weiterleitung zu Jobs-Seite
-            if st.button("📊 Zu Jobs anzeigen", key="goto_jobs_after_train"):
-                st.session_state['page'] = 'jobs'
-                st.rerun()
+                    # Speichere Job-ID in session_state für Button außerhalb des Forms
+                    st.session_state['last_created_job_id'] = result.get('job_id')
+    
+    # ⚠️ WICHTIG: Button muss KOMPLETT AUSSERHALB des Forms sein!
+    # Weiterleitung zu Jobs-Seite (nur anzeigen wenn Job erstellt wurde)
+    if st.session_state.get('last_created_job_id'):
+        if st.button("📊 Zu Jobs anzeigen", key="goto_jobs_after_train"):
+            st.session_state['page'] = 'jobs'
+            st.session_state.pop('last_created_job_id', None)  # Entferne nach Navigation
+            st.rerun()
 
 def page_test():
     """Modell testen"""
