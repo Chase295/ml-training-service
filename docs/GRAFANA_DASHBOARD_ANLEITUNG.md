@@ -298,6 +298,27 @@ scrape_configs:
 
 ---
 
+---
+
+## 📥 Dashboard Import
+
+**Fertiges Dashboard JSON verfügbar:**
+- Datei: `docs/grafana_dashboard.json`
+- **Import in Grafana:**
+  1. Grafana öffnen → Dashboards → Import
+  2. JSON-Datei hochladen oder Inhalt einfügen
+  3. Prometheus-Datenquelle auswählen
+  4. Dashboard speichern
+
+**Dashboard enthält:**
+- ✅ 16 Panels für vollständiges Monitoring
+- ✅ Job Progress & Duration Time Series
+- ✅ Job Status Tabelle & Pie Chart
+- ✅ Service Health (DB, Uptime, Memory)
+- ✅ Model Accuracy Tracking
+- ✅ Features & Phases Stats
+- ✅ Job Counter & Histogram
+
 **Erstellt:** 2025-12-24  
 **Version:** 1.0
 
