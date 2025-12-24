@@ -95,7 +95,11 @@ async def create_model(
     pool = await get_pool()
     
     # ✅ SICHERHEIT: Stelle sicher, dass der Name eindeutig ist
+    # ⚠️ WICHTIG: Rufe ensure_unique_model_name NUR EINMAL auf, um Race Conditions zu vermeiden!
+    original_name = name
     name = await ensure_unique_model_name(name)
+    if name != original_name:
+        logger.info(f"📝 Modell-Name angepasst: '{original_name}' → '{name}'")
     
     # Konvertiere Listen/Dicts zu JSONB-Strings (refactored: nutze Helper-Funktion)
     features_jsonb = to_jsonb(features)
@@ -141,8 +145,9 @@ async def create_model(
         error_str = str(e).lower()
         if 'duplicate key' in error_str and 'ml_models_name_key' in error_str:
             # Name wurde zwischen Prüfung und INSERT von anderem Prozess verwendet
+            # ⚠️ WICHTIG: Verwende den ORIGINALEN Namen, nicht den bereits angepassten!
             logger.warning(f"⚠️ Duplikat-Fehler erkannt (Race Condition) - generiere neuen eindeutigen Namen...")
-            name = await ensure_unique_model_name(name)
+            name = await ensure_unique_model_name(original_name if 'original_name' in locals() else name)
             # Versuche erneut mit neuem Namen
             try:
                 model_id = await pool.fetchval(
@@ -209,7 +214,7 @@ async def create_model(
                 error_str2 = str(e2).lower()
                 if 'duplicate key' in error_str2 and 'ml_models_name_key' in error_str2:
                     logger.warning(f"⚠️ Duplikat-Fehler im Fallback-Block - generiere neuen eindeutigen Namen...")
-                    name = await ensure_unique_model_name(name)
+                    name = await ensure_unique_model_name(original_name if 'original_name' in locals() else name)
                     # Versuche erneut mit neuem Namen
                     try:
                         model_id = await pool.fetchval(
@@ -239,7 +244,7 @@ async def create_model(
                         # Falls auch das fehlschlägt, verwende Standard-Spalten
                         error_str3 = str(e3).lower()
                         if 'duplicate key' in error_str3 and 'ml_models_name_key' in error_str3:
-                            name = await ensure_unique_model_name(name)
+                            name = await ensure_unique_model_name(original_name if 'original_name' in locals() else name)
                         model_id = await pool.fetchval(
                             """
                             INSERT INTO ml_models (
@@ -288,7 +293,7 @@ async def create_model(
                         error_str4 = str(e4).lower()
                         if 'duplicate key' in error_str4 and 'ml_models_name_key' in error_str4:
                             logger.warning(f"⚠️ Duplikat-Fehler im Standard-Fallback - generiere neuen eindeutigen Namen...")
-                            name = await ensure_unique_model_name(name)
+                            name = await ensure_unique_model_name(original_name if 'original_name' in locals() else name)
                             # Versuche erneut mit neuem Namen
                             model_id = await pool.fetchval(
                                 """
