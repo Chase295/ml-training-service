@@ -80,9 +80,13 @@ async def process_train_job(job: Dict[str, Any]) -> None:
     """
     logger.info(f"🎯 Verarbeite TRAIN Job {job['id']}")
     
-    # 1. Hole Modell-Name aus progress_msg (wurde beim Job-Erstellen dort gespeichert)
+    # 1. ⚠️ KRITISCH: Hole Modell-Name aus progress_msg BEVOR es überschrieben wird!
+    # Der Name wurde beim Job-Erstellen in progress_msg gespeichert
     model_name = job.get('progress_msg') or f"Model_{job['id']}"
     logger.info(f"📝 Modell-Name: {model_name}")
+    
+    # ⚠️ WICHTIG: Speichere den ursprünglichen Namen, falls progress_msg später überschrieben wird
+    original_model_name = model_name
     
     # 2. Hole Job-Parameter
     model_type = job['train_model_type']
@@ -173,7 +177,7 @@ async def process_train_job(job: Dict[str, Any]) -> None:
     train_target_direction = job.get('train_target_direction')
     
     model_id = await create_model(
-        name=model_name,
+        name=original_model_name,  # ⚠️ Verwende den ursprünglichen Namen!
         model_type=model_type,
         target_variable=target_var,
         train_start=train_start_dt,
@@ -204,7 +208,7 @@ async def process_train_job(job: Dict[str, Any]) -> None:
         target_direction=train_target_direction
     )
     
-    logger.info(f"✅ Modell erstellt: ID {model_id}, Name: {model_name}")
+    logger.info(f"✅ Modell erstellt: ID {model_id}, Name: {original_model_name}")
     
     # 8. Setze result_model_id im Job
     await update_job_status(
@@ -212,7 +216,7 @@ async def process_train_job(job: Dict[str, Any]) -> None:
         status="COMPLETED",
         progress=1.0,
         result_model_id=model_id,
-        progress_msg=f"Modell {model_name} erfolgreich erstellt"
+        progress_msg=f"Modell {original_model_name} erfolgreich erstellt"
     )
     
     logger.info(f"🎉 TRAIN Job {job['id']} erfolgreich: Modell {model_id} erstellt")
