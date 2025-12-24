@@ -98,12 +98,12 @@ def main():
     # Timestamp für eindeutige Namen
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
     
-    # Standard-Features
+    # Standard-Features (nur Spalten die definitiv existieren)
     default_features = [
         "price_open", "price_high", "price_low", "price_close",
-        "volume_sol", "volume_usd",
+        "volume_sol",
         "market_cap_close",
-        "buy_volume_sol", "sell_volume_sol"
+        "order_buy_volume", "order_sell_volume"
     ]
     
     # Modell 1: Random Forest (einfach)

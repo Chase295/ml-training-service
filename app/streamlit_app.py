@@ -71,9 +71,10 @@ def api_patch(endpoint: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
 # Verfügbare Features (aus coin_metrics)
+# ⚠️ WICHTIG: Nur Spalten die tatsächlich in der Datenbank existieren!
 AVAILABLE_FEATURES = [
     "price_open", "price_high", "price_low", "price_close",
-    "volume_sol", "volume_usd",
+    "volume_sol",  # volume_usd existiert nicht!
     "market_cap_open", "market_cap_high", "market_cap_low", "market_cap_close",
     "order_buy_count", "order_sell_count",
     "order_buy_volume", "order_sell_volume",
@@ -83,7 +84,7 @@ AVAILABLE_FEATURES = [
 
 # Verfügbare Target-Variablen
 AVAILABLE_TARGETS = [
-    "market_cap_close", "price_close", "volume_sol", "volume_usd"
+    "market_cap_close", "price_close", "volume_sol"  # volume_usd existiert nicht!
 ]
 
 def load_phases() -> List[Dict[str, Any]]:
