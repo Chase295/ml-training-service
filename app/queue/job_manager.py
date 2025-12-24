@@ -42,8 +42,9 @@ async def process_job(job_id: int) -> None:
     update_active_jobs(1)
     
     try:
-        # Status auf RUNNING setzen
-        await update_job_status(job_id, status="RUNNING", progress=0.0)
+        # ⚠️ WICHTIG: Status ist bereits auf RUNNING gesetzt (in get_next_pending_job)
+        # Nur Progress aktualisieren, falls nötig
+        # await update_job_status(job_id, status="RUNNING", progress=0.0)  # ENTFERNT - wird bereits in get_next_pending_job gemacht
         
         if job_type == "TRAIN":
             await process_train_job(job)

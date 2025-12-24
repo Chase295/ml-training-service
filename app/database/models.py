@@ -981,15 +981,29 @@ async def list_jobs(
     return result
 
 async def get_next_pending_job() -> Optional[Dict[str, Any]]:
-    """Holt nächsten PENDING Job (ORDER BY priority, created_at)"""
+    """
+    Holt nächsten PENDING Job und setzt Status ATOMIC auf RUNNING
+    
+    ✅ WICHTIG: Verhindert Race Conditions - Job wird sofort auf RUNNING gesetzt,
+    damit er nicht von mehreren Workern gleichzeitig verarbeitet wird!
+    """
     pool = await get_pool()
+    
+    # ✅ ATOMIC: Hole Job UND setze Status auf RUNNING in einer Transaktion
     row = await pool.fetchrow(
         """
-        SELECT * FROM ml_jobs 
-        WHERE status = 'PENDING'
-        ORDER BY priority DESC, created_at ASC
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
+        UPDATE ml_jobs 
+        SET status = 'RUNNING', 
+            started_at = COALESCE(started_at, NOW()),
+            progress = 0.0
+        WHERE id = (
+            SELECT id FROM ml_jobs 
+            WHERE status = 'PENDING'
+            ORDER BY priority DESC, created_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
         """
     )
     return dict(row) if row else None
