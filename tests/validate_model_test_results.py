@@ -8,7 +8,9 @@ import httpx
 import json
 from typing import Dict, Any, Optional
 
-API_BASE_URL = "http://localhost:8000/api"
+# API Base URL - kann über Umgebungsvariable überschrieben werden
+import os
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api")
 
 async def validate_model(model_id: int) -> Dict[str, Any]:
     """
