@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from app.database.connection import get_pool
 from app.database.utils import to_jsonb, from_jsonb, convert_jsonb_fields
+from app.utils.exceptions import DatabaseError
 
 logger = logging.getLogger(__name__)
 
@@ -106,219 +107,67 @@ async def create_model(
     phases_jsonb = to_jsonb(phases)
     params_jsonb = to_jsonb(params)
     feature_importance_jsonb = to_jsonb(feature_importance)
-    cv_scores_jsonb = to_jsonb(cv_scores)  # NEU
-    confusion_matrix_jsonb = to_jsonb(confusion_matrix)  # NEU
+    cv_scores_jsonb = to_jsonb(cv_scores)
+    confusion_matrix_jsonb = to_jsonb(confusion_matrix)
     
-    # Prüfe ob neue Spalten existieren (für Rückwärtskompatibilität)
-    # Falls nicht, wird sie ignoriert
-    try:
-        model_id = await pool.fetchval(
-            """
-            INSERT INTO ml_models (
+    # ⚠️ KRITISCH: Nur EIN INSERT-Versuch! Keine verschachtelten Retry-Blöcke mehr!
+    # Jeder erfolgreiche INSERT erstellt ein neues Modell - das führt zu mehreren Modellen!
+    max_retries = 2  # Maximal 2 Versuche (1x normal, 1x bei Duplikat-Fehler)
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            model_id = await pool.fetchval(
+                """
+                INSERT INTO ml_models (
+                    name, model_type, status,
+                    target_variable, target_operator, target_value,
+                    train_start, train_end,
+                    features, phases, params,
+                    training_accuracy, training_f1, training_precision, training_recall,
+                    feature_importance, model_file_path, description,
+                    cv_scores, cv_overfitting_gap,
+                    roc_auc, mcc, fpr, fnr, confusion_matrix, simulated_profit_pct,
+                    future_minutes, price_change_percent, target_direction
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, 
+                    $12, $13, $14, $15, $16::jsonb, $17, $18, $19::jsonb, $20,
+                    $21, $22, $23, $24, $25::jsonb, $26, $27, $28, $29
+                ) RETURNING id
+                """,
                 name, model_type, status,
                 target_variable, target_operator, target_value,
                 train_start, train_end,
-                features, phases, params,
+                features_jsonb, phases_jsonb, params_jsonb,
                 training_accuracy, training_f1, training_precision, training_recall,
-                feature_importance, model_file_path, description,
-                cv_scores, cv_overfitting_gap,
-                roc_auc, mcc, fpr, fnr, confusion_matrix, simulated_profit_pct,
+                feature_importance_jsonb, model_file_path, description,
+                cv_scores_jsonb, cv_overfitting_gap,
+                roc_auc, mcc, fpr, fnr, confusion_matrix_jsonb, simulated_profit_pct,
                 future_minutes, price_change_percent, target_direction
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, 
-                $12, $13, $14, $15, $16::jsonb, $17, $18, $19::jsonb, $20,
-                $21, $22, $23, $24, $25::jsonb, $26, $27, $28, $29
-            ) RETURNING id
-            """,
-            name, model_type, status,
-            target_variable, target_operator, target_value,
-            train_start, train_end,
-            features_jsonb, phases_jsonb, params_jsonb,
-            training_accuracy, training_f1, training_precision, training_recall,
-            feature_importance_jsonb, model_file_path, description,
-            cv_scores_jsonb, cv_overfitting_gap,
-            roc_auc, mcc, fpr, fnr, confusion_matrix_jsonb, simulated_profit_pct,
-            future_minutes, price_change_percent, target_direction
-        )
-    except Exception as e:
-        # ✅ SICHERHEIT: Prüfe zuerst auf Duplikat-Fehler (Race Condition)
-        error_str = str(e).lower()
-        if 'duplicate key' in error_str and 'ml_models_name_key' in error_str:
-            # Name wurde zwischen Prüfung und INSERT von anderem Prozess verwendet
-            # ⚠️ WICHTIG: Verwende den ORIGINALEN Namen, nicht den bereits angepassten!
-            logger.warning(f"⚠️ Duplikat-Fehler erkannt (Race Condition) - generiere neuen eindeutigen Namen...")
-            name = await ensure_unique_model_name(original_name if 'original_name' in locals() else name)
-            # Versuche erneut mit neuem Namen
-            try:
-                model_id = await pool.fetchval(
-                    """
-                    INSERT INTO ml_models (
-                        name, model_type, status,
-                        target_variable, target_operator, target_value,
-                        train_start, train_end,
-                        features, phases, params,
-                        training_accuracy, training_f1, training_precision, training_recall,
-                        feature_importance, model_file_path, description,
-                        cv_scores, cv_overfitting_gap,
-                        roc_auc, mcc, fpr, fnr, confusion_matrix, simulated_profit_pct,
-                        future_minutes, price_change_percent, target_direction
-                    ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, 
-                        $12, $13, $14, $15, $16::jsonb, $17, $18, $19::jsonb, $20,
-                        $21, $22, $23, $24, $25::jsonb, $26, $27, $28, $29
-                    ) RETURNING id
-                    """,
-                    name, model_type, status,
-                    target_variable, target_operator, target_value,
-                    train_start, train_end,
-                    features_jsonb, phases_jsonb, params_jsonb,
-                    training_accuracy, training_f1, training_precision, training_recall,
-                    feature_importance_jsonb, model_file_path, description,
-                    cv_scores_jsonb, cv_overfitting_gap,
-                    roc_auc, mcc, fpr, fnr, confusion_matrix_jsonb, simulated_profit_pct,
-                    future_minutes, price_change_percent, target_direction
-                )
-            except Exception as e3:
-                # Falls auch das fehlschlägt, verwende Fallback-Versionen
-                logger.error(f"❌ Fehler beim Erstellen mit eindeutigem Namen: {e3}")
-                raise
-        elif any(col in error_str for col in ['cv_scores', 'cv_overfitting_gap', 'roc_auc', 'mcc', 'fpr', 'fnr', 'confusion_matrix', 'simulated_profit_pct']):
-            logger.warning(f"⚠️ Neue Metriken-Spalten nicht gefunden - verwende Fallback (ohne zusätzliche Metriken)")
-            try:
-                # Versuche mit CV-Spalten (falls vorhanden)
-                model_id = await pool.fetchval(
-                    """
-                    INSERT INTO ml_models (
-                        name, model_type, status,
-                        target_variable, target_operator, target_value,
-                        train_start, train_end,
-                        features, phases, params,
-                        training_accuracy, training_f1, training_precision, training_recall,
-                        feature_importance, model_file_path, description,
-                        cv_scores, cv_overfitting_gap
-                    ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, 
-                        $12, $13, $14, $15, $16::jsonb, $17, $18, $19::jsonb, $20
-                    ) RETURNING id
-                    """,
-                    name, model_type, status,
-                    target_variable, target_operator, target_value,
-                    train_start, train_end,
-                    features_jsonb, phases_jsonb, params_jsonb,
-                    training_accuracy, training_f1, training_precision, training_recall,
-                    feature_importance_jsonb, model_file_path, description,
-                    cv_scores_jsonb, cv_overfitting_gap
-                )
-            except Exception as e2:
-                # ✅ SICHERHEIT: Prüfe auch hier auf Duplikat-Fehler
-                error_str2 = str(e2).lower()
-                if 'duplicate key' in error_str2 and 'ml_models_name_key' in error_str2:
-                    logger.warning(f"⚠️ Duplikat-Fehler im Fallback-Block - generiere neuen eindeutigen Namen...")
-                    name = await ensure_unique_model_name(original_name if 'original_name' in locals() else name)
-                    # Versuche erneut mit neuem Namen
-                    try:
-                        model_id = await pool.fetchval(
-                            """
-                            INSERT INTO ml_models (
-                                name, model_type, status,
-                                target_variable, target_operator, target_value,
-                                train_start, train_end,
-                                features, phases, params,
-                                training_accuracy, training_f1, training_precision, training_recall,
-                                feature_importance, model_file_path, description,
-                                cv_scores, cv_overfitting_gap
-                            ) VALUES (
-                                $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, 
-                                $12, $13, $14, $15, $16::jsonb, $17, $18, $19::jsonb, $20
-                            ) RETURNING id
-                            """,
-                            name, model_type, status,
-                            target_variable, target_operator, target_value,
-                            train_start, train_end,
-                            features_jsonb, phases_jsonb, params_jsonb,
-                            training_accuracy, training_f1, training_precision, training_recall,
-                            feature_importance_jsonb, model_file_path, description,
-                            cv_scores_jsonb, cv_overfitting_gap
-                        )
-                    except Exception as e3:
-                        # Falls auch das fehlschlägt, verwende Standard-Spalten
-                        error_str3 = str(e3).lower()
-                        if 'duplicate key' in error_str3 and 'ml_models_name_key' in error_str3:
-                            name = await ensure_unique_model_name(original_name if 'original_name' in locals() else name)
-                        model_id = await pool.fetchval(
-                            """
-                            INSERT INTO ml_models (
-                                name, model_type, status,
-                                target_variable, target_operator, target_value,
-                                train_start, train_end,
-                                features, phases, params,
-                                training_accuracy, training_f1, training_precision, training_recall,
-                                feature_importance, model_file_path, description
-                            ) VALUES (
-                                $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14, $15, $16::jsonb, $17, $18
-                            ) RETURNING id
-                            """,
-                            name, model_type, status,
-                            target_variable, target_operator, target_value,
-                            train_start, train_end,
-                            features_jsonb, phases_jsonb, params_jsonb,
-                            training_accuracy, training_f1, training_precision, training_recall,
-                            feature_importance_jsonb, model_file_path, description
-                        )
+            )
+            # ✅ Erfolgreich - beende sofort!
+            return model_id
+            
+        except Exception as e:
+            error_str = str(e).lower()
+            
+            # ✅ Nur bei Duplikat-Fehler: Retry mit neuem Namen
+            if 'duplicate key' in error_str and 'ml_models_name_key' in error_str:
+                retry_count += 1
+                if retry_count < max_retries:
+                    logger.warning(f"⚠️ Duplikat-Fehler erkannt (Versuch {retry_count}) - generiere neuen eindeutigen Namen...")
+                    name = await ensure_unique_model_name(original_name)
+                    continue  # Versuche erneut mit neuem Namen
                 else:
-                    # Fallback: Nur Standard-Spalten
-                    try:
-                        model_id = await pool.fetchval(
-                            """
-                            INSERT INTO ml_models (
-                                name, model_type, status,
-                                target_variable, target_operator, target_value,
-                                train_start, train_end,
-                                features, phases, params,
-                                training_accuracy, training_f1, training_precision, training_recall,
-                                feature_importance, model_file_path, description
-                            ) VALUES (
-                                $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14, $15, $16::jsonb, $17, $18
-                            ) RETURNING id
-                            """,
-                            name, model_type, status,
-                            target_variable, target_operator, target_value,
-                            train_start, train_end,
-                            features_jsonb, phases_jsonb, params_jsonb,
-                            training_accuracy, training_f1, training_precision, training_recall,
-                            feature_importance_jsonb, model_file_path, description
-                        )
-                    except Exception as e4:
-                        # ✅ SICHERHEIT: Prüfe auch im Standard-Fallback auf Duplikat-Fehler
-                        error_str4 = str(e4).lower()
-                        if 'duplicate key' in error_str4 and 'ml_models_name_key' in error_str4:
-                            logger.warning(f"⚠️ Duplikat-Fehler im Standard-Fallback - generiere neuen eindeutigen Namen...")
-                            name = await ensure_unique_model_name(original_name if 'original_name' in locals() else name)
-                            # Versuche erneut mit neuem Namen
-                            model_id = await pool.fetchval(
-                                """
-                                INSERT INTO ml_models (
-                                    name, model_type, status,
-                                    target_variable, target_operator, target_value,
-                                    train_start, train_end,
-                                    features, phases, params,
-                                    training_accuracy, training_f1, training_precision, training_recall,
-                                    feature_importance, model_file_path, description
-                                ) VALUES (
-                                    $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14, $15, $16::jsonb, $17, $18
-                                ) RETURNING id
-                                """,
-                                name, model_type, status,
-                                target_variable, target_operator, target_value,
-                                train_start, train_end,
-                                features_jsonb, phases_jsonb, params_jsonb,
-                                training_accuracy, training_f1, training_precision, training_recall,
-                                feature_importance_jsonb, model_file_path, description
-                            )
-                        else:
-                            raise
-        else:
-            raise
+                    logger.error(f"❌ Duplikat-Fehler nach {max_retries} Versuchen - gebe auf")
+                    raise DatabaseError(f"Konnte keinen eindeutigen Modell-Namen generieren nach {max_retries} Versuchen: {e}")
+            else:
+                # ❌ Alle anderen Fehler: Sofort abbrechen!
+                logger.error(f"❌ Fehler beim Erstellen des Modells: {e}")
+                raise DatabaseError(f"Fehler beim Erstellen des Modells: {e}")
+    
+    # Sollte nie erreicht werden, aber zur Sicherheit:
+    raise DatabaseError(f"Unerwarteter Fehler: Konnte Modell nicht erstellen nach {max_retries} Versuchen")
     logger.info(f"✅ Modell erstellt: {name} (ID: {model_id})")
     return model_id
 
