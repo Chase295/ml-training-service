@@ -106,44 +106,46 @@ def main():
         "market_cap_close"
     ]
     
-    # Modell 1: Random Forest (einfach)
+    # Modell 1: Random Forest - 10 Minuten, 30% Änderung
     print("\n" + "="*60)
     model1_config = {
-        "name": f"Test-RF-{timestamp}",
+        "name": f"Test-RF-10min-30pct-{timestamp}",
         "model_type": "random_forest",
         "features": default_features,
         "train_start": train_start.isoformat(),
         "train_end": train_end.isoformat(),
-        "description": "Test-Modell: Random Forest (einfach)",
+        "description": "Test-Modell: Random Forest - 10min, 30% Änderung",
         "phases": phases,
         "use_engineered_features": False,
         "use_smote": False,
         "use_timeseries_split": False,
-        "use_time_based_prediction": False,
-        "target_var": "market_cap_close",
-        "operator": ">",
-        "target_value": 10000.0
+        "use_time_based_prediction": True,
+        "future_minutes": 10,
+        "min_percent_change": 30.0,
+        "direction": "up",
+        "target_var": "price_close"  # Für zeitbasierte Vorhersage
     }
     
     success1, job_id1 = create_model(model1_config)
     
-    # Modell 2: XGBoost (mit Feature Engineering)
+    # Modell 2: XGBoost - 5 Minuten, 30% Änderung
     print("\n" + "="*60)
     model2_config = {
-        "name": f"Test-XGB-{timestamp}",
+        "name": f"Test-XGB-5min-30pct-{timestamp}",
         "model_type": "xgboost",
         "features": default_features,
         "train_start": train_start.isoformat(),
         "train_end": train_end.isoformat(),
-        "description": "Test-Modell: XGBoost (mit Feature Engineering)",
+        "description": "Test-Modell: XGBoost - 5min, 30% Änderung",
         "phases": phases,
         "use_engineered_features": True,
         "use_smote": False,
         "use_timeseries_split": False,
-        "use_time_based_prediction": False,
-        "target_var": "market_cap_close",
-        "operator": ">",
-        "target_value": 10000.0,
+        "use_time_based_prediction": True,
+        "future_minutes": 5,
+        "min_percent_change": 30.0,
+        "direction": "up",
+        "target_var": "price_close",  # Für zeitbasierte Vorhersage
         "params": {
             "n_estimators": 100,
             "max_depth": 5
@@ -158,14 +160,14 @@ def main():
     print("="*60)
     
     if success1:
-        print(f"✅ Modell 1 (Random Forest) erstellt - Job ID: {job_id1}")
+        print(f"✅ Modell 1 (Random Forest - 10min, 30%) erstellt - Job ID: {job_id1}")
     else:
-        print(f"❌ Modell 1 (Random Forest) fehlgeschlagen")
+        print(f"❌ Modell 1 (Random Forest - 10min, 30%) fehlgeschlagen")
     
     if success2:
-        print(f"✅ Modell 2 (XGBoost) erstellt - Job ID: {job_id2}")
+        print(f"✅ Modell 2 (XGBoost - 5min, 30%) erstellt - Job ID: {job_id2}")
     else:
-        print(f"❌ Modell 2 (XGBoost) fehlgeschlagen")
+        print(f"❌ Modell 2 (XGBoost - 5min, 30%) fehlgeschlagen")
     
     if success1 and success2:
         print("\n🎉 Beide Modelle wurden erfolgreich erstellt!")
