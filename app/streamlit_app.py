@@ -72,14 +72,18 @@ def api_patch(endpoint: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 # Verfügbare Features (aus coin_metrics)
 # ⚠️ WICHTIG: Nur Spalten die tatsächlich in der Datenbank existieren!
+# Diese Liste muss mit den tatsächlichen Spalten in coin_metrics übereinstimmen!
 AVAILABLE_FEATURES = [
     "price_open", "price_high", "price_low", "price_close",
-    "volume_sol",  # volume_usd existiert nicht!
-    "market_cap_open", "market_cap_high", "market_cap_low", "market_cap_close",
-    "order_buy_count", "order_sell_count",
-    "order_buy_volume", "order_sell_volume",
-    "whale_buy_count", "whale_sell_count",
-    "whale_buy_volume", "whale_sell_volume"
+    "volume_sol",
+    "market_cap_open", "market_cap_high", "market_cap_low", "market_cap_close"
+    # ⚠️ Folgende Spalten existieren NICHT in der Datenbank:
+    # - volume_usd
+    # - order_buy_count, order_sell_count
+    # - order_buy_volume, order_sell_volume
+    # - whale_buy_count, whale_sell_count
+    # - whale_buy_volume, whale_sell_volume
+    # - buy_volume_sol, sell_volume_sol
 ]
 
 # Verfügbare Target-Variablen

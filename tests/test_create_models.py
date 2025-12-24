@@ -99,11 +99,11 @@ def main():
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
     
     # Standard-Features (nur Spalten die definitiv existieren)
+    # ⚠️ WICHTIG: Nur grundlegende Spalten verwenden!
     default_features = [
         "price_open", "price_high", "price_low", "price_close",
         "volume_sol",
-        "market_cap_close",
-        "order_buy_volume", "order_sell_volume"
+        "market_cap_close"
     ]
     
     # Modell 1: Random Forest (einfach)
