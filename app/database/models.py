@@ -117,6 +117,7 @@ async def create_model(
     
     while retry_count < max_retries:
         try:
+            # Versuche zuerst mit allen Spalten (neue Schema-Version)
             model_id = await pool.fetchval(
                 """
                 INSERT INTO ml_models (
@@ -146,6 +147,7 @@ async def create_model(
                 future_minutes, price_change_percent, target_direction
             )
             # ✅ Erfolgreich - beende sofort!
+            logger.info(f"✅ Modell erstellt: {name} (ID: {model_id})")
             return model_id
             
         except Exception as e:
@@ -161,6 +163,52 @@ async def create_model(
                 else:
                     logger.error(f"❌ Duplikat-Fehler nach {max_retries} Versuchen - gebe auf")
                     raise DatabaseError(f"Konnte keinen eindeutigen Modell-Namen generieren nach {max_retries} Versuchen: {e}")
+            
+            # ✅ Fallback: Prüfe ob neue Spalten fehlen (alte Schema-Version)
+            elif any(col in error_str for col in ['cv_scores', 'cv_overfitting_gap', 'roc_auc', 'mcc', 'fpr', 'fnr', 'confusion_matrix', 'simulated_profit_pct']):
+                logger.warning(f"⚠️ Neue Metriken-Spalten nicht gefunden - verwende Fallback (ohne zusätzliche Metriken)")
+                try:
+                    # Fallback: Nur Standard-Spalten (ohne neue Metriken)
+                    model_id = await pool.fetchval(
+                        """
+                        INSERT INTO ml_models (
+                            name, model_type, status,
+                            target_variable, target_operator, target_value,
+                            train_start, train_end,
+                            features, phases, params,
+                            training_accuracy, training_f1, training_precision, training_recall,
+                            feature_importance, model_file_path, description,
+                            future_minutes, price_change_percent, target_direction
+                        ) VALUES (
+                            $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, 
+                            $12, $13, $14, $15, $16::jsonb, $17, $18, $19, $20, $21
+                        ) RETURNING id
+                        """,
+                        name, model_type, status,
+                        target_variable, target_operator, target_value,
+                        train_start, train_end,
+                        features_jsonb, phases_jsonb, params_jsonb,
+                        training_accuracy, training_f1, training_precision, training_recall,
+                        feature_importance_jsonb, model_file_path, description,
+                        future_minutes, price_change_percent, target_direction
+                    )
+                    logger.info(f"✅ Modell erstellt (Fallback): {name} (ID: {model_id})")
+                    return model_id
+                except Exception as e2:
+                    error_str2 = str(e2).lower()
+                    # Prüfe auch im Fallback auf Duplikat-Fehler
+                    if 'duplicate key' in error_str2 and 'ml_models_name_key' in error_str2:
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            logger.warning(f"⚠️ Duplikat-Fehler im Fallback (Versuch {retry_count}) - generiere neuen eindeutigen Namen...")
+                            name = await ensure_unique_model_name(original_name)
+                            continue
+                        else:
+                            raise DatabaseError(f"Konnte keinen eindeutigen Modell-Namen generieren nach {max_retries} Versuchen: {e2}")
+                    else:
+                        # Anderer Fehler im Fallback - weiterwerfen
+                        logger.error(f"❌ Fehler im Fallback beim Erstellen des Modells: {e2}")
+                        raise DatabaseError(f"Fehler beim Erstellen des Modells (Fallback): {e2}")
             else:
                 # ❌ Alle anderen Fehler: Sofort abbrechen!
                 logger.error(f"❌ Fehler beim Erstellen des Modells: {e}")
