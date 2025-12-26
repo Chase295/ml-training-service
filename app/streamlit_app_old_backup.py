@@ -1,64 +1,50 @@
 """
 Streamlit UI für ML Training Service
-Web-Interface für Modell-Management mit Tab-basiertem Layout
+Web-Interface für Modell-Management
 """
 import streamlit as st
 import os
 import httpx
 import pandas as pd
 import plotly.express as px
-import yaml
-import json
-import time
-import subprocess
-import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
-from pathlib import Path
-from urllib.parse import urlparse
 
 # Konfiguration
-# ⚠️ WICHTIG: Innerhalb des Containers muss auf Port 8000 zugegriffen werden (interner Port)
-# Von außen ist die API auf Port 8012 erreichbar (externer Port)
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
-CONFIG_FILE = "/app/config/config.yaml"
-ENV_FILE = "/app/config/.env"
-SERVICE_NAME = os.getenv("SERVICE_NAME", "ml-training-service")
-COOLIFY_MODE = os.getenv("COOLIFY_MODE", "false").lower() == "true"
 
 # Page Config
 st.set_page_config(
-    page_title="ML Training Service - Control Panel",
+    page_title="ML Training Service",
     page_icon="🤖",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # ============================================================
 # Helper Functions
 # ============================================================
 
-def api_get(endpoint: str, show_errors: bool = False) -> Any:
+def api_get(endpoint: str) -> Any:
     """GET Request zur API (kann Dict oder List zurückgeben)"""
     try:
         response = httpx.get(f"{API_BASE_URL}{endpoint}", timeout=30.0)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPError as e:
-        if show_errors:
-            st.error(f"❌ API-Fehler: {e}")
+        st.error(f"❌ API-Fehler: {e}")
         return [] if 'comparisons' in endpoint or 'models' in endpoint else {}
 
-def api_post(endpoint: str, data: Dict[str, Any], show_errors: bool = True) -> Optional[Dict[str, Any]]:
+def api_post(endpoint: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """POST Request zur API"""
     try:
         response = httpx.post(f"{API_BASE_URL}{endpoint}", json=data, timeout=30.0)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPError as e:
-        if show_errors:
-            st.error(f"❌ API-Fehler: {e}")
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                st.error(f"Details: {e.response.text}")
+        st.error(f"❌ API-Fehler: {e}")
+        if hasattr(e.response, 'text'):
+            st.error(f"Details: {e.response.text}")
         return None
 
 def api_delete(endpoint: str) -> bool:
@@ -72,17 +58,16 @@ def api_delete(endpoint: str) -> bool:
         # damit mehrere Löschungen nicht zu vielen Fehlermeldungen führen
         return False
 
-def api_patch(endpoint: str, data: Dict[str, Any], show_errors: bool = True) -> Optional[Dict[str, Any]]:
+def api_patch(endpoint: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """PATCH Request zur API"""
     try:
         response = httpx.patch(f"{API_BASE_URL}{endpoint}", json=data, timeout=30.0)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPError as e:
-        if show_errors:
-            st.error(f"❌ API-Fehler: {e}")
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                st.error(f"Details: {e.response.text}")
+        st.error(f"❌ API-Fehler: {e}")
+        if hasattr(e, 'response') and hasattr(e.response, 'text'):
+            st.error(f"Details: {e.response.text}")
         return None
 
 # Verfügbare Features (aus coin_metrics)
@@ -90,54 +75,18 @@ def api_patch(endpoint: str, data: Dict[str, Any], show_errors: bool = True) -> 
 # Diese Liste muss mit den tatsächlichen Spalten in coin_metrics übereinstimmen!
 # ⚠️ HINWEIS: market_cap_open, market_cap_high, market_cap_low existieren NICHT!
 # Nur market_cap_close ist verfügbar!
-# Verfügbare Features aus coin_metrics (kategorisiert)
 AVAILABLE_FEATURES = [
-    # Basis OHLC
     "price_open", "price_high", "price_low", "price_close",
-    
-    # Volumen
-    "volume_sol", "buy_volume_sol", "sell_volume_sol", "net_volume_sol",
-    
-    # Market Cap & Phase
-    "market_cap_close", "phase_id_at_time",
-    
-    # ⚠️ KRITISCH für Rug-Detection
-    "dev_sold_amount",  # Wichtigster Indikator für Rug-Pulls!
-    
-    # Ratio-Metriken (Bot-Spam vs. echtes Interesse)
-    "buy_pressure_ratio",
-    "unique_signer_ratio",
-    
-    # Whale-Aktivität
-    "whale_buy_volume_sol",
-    "whale_sell_volume_sol",
-    "num_whale_buys",
-    "num_whale_sells",
-    
-    # Volatilität
-    "volatility_pct",
-    "avg_trade_size_sol"
-]
-
-# Feature-Kategorien für UI
-FEATURE_CATEGORIES = {
-    "Basis OHLC": ["price_open", "price_high", "price_low", "price_close"],
-    "Volumen": ["volume_sol", "buy_volume_sol", "sell_volume_sol", "net_volume_sol"],
-    "Market Cap & Phase": ["market_cap_close", "phase_id_at_time"],
-    "Dev-Tracking (Rug-Pull-Erkennung)": ["dev_sold_amount"],
-    "Ratio-Metriken (Bot-Spam vs. echtes Interesse)": ["buy_pressure_ratio", "unique_signer_ratio"],
-    "Whale-Aktivität": ["whale_buy_volume_sol", "whale_sell_volume_sol", "num_whale_buys", "num_whale_sells"],
-    "Volatilität": ["volatility_pct", "avg_trade_size_sol"]
-}
-
-# Kritische Features (empfohlen für Rug-Detection)
-CRITICAL_FEATURES = [
-    "dev_sold_amount",  # Wichtigster Indikator!
-    "buy_pressure_ratio",
-    "unique_signer_ratio",
-    "whale_buy_volume_sol",
-    "volatility_pct",
-    "net_volume_sol"
+    "volume_sol",
+    "market_cap_close"  # ⚠️ Nur market_cap_close existiert, nicht market_cap_open/high/low!
+    # ⚠️ Folgende Spalten existieren NICHT in der Datenbank:
+    # - volume_usd
+    # - market_cap_open, market_cap_high, market_cap_low
+    # - order_buy_count, order_sell_count
+    # - order_buy_volume, order_sell_volume
+    # - whale_buy_count, whale_sell_count
+    # - whale_buy_volume, whale_sell_volume
+    # - buy_volume_sol, sell_volume_sol
 ]
 
 # Verfügbare Target-Variablen
@@ -151,314 +100,6 @@ def load_phases() -> List[Dict[str, Any]]:
     if isinstance(phases_data, list):
         return phases_data
     return []
-
-# ============================================================
-# Konfigurationssystem (wie in vorherigen Services)
-# ============================================================
-
-def load_config():
-    """Lädt Konfiguration aus YAML-Datei oder .env"""
-    config = {}
-    
-    # Lade aus Environment Variables
-    env_vars = {
-        'DB_DSN': os.getenv('DB_DSN'),
-        'API_PORT': os.getenv('API_PORT', '8000'),
-        'STREAMLIT_PORT': os.getenv('STREAMLIT_PORT', '8501'),
-        'MODEL_STORAGE_PATH': os.getenv('MODEL_STORAGE_PATH', '/app/models'),
-        'API_BASE_URL': os.getenv('API_BASE_URL', 'http://localhost:8000'),  # Interner Port
-        'JOB_POLL_INTERVAL': os.getenv('JOB_POLL_INTERVAL', '5'),
-        'MAX_CONCURRENT_JOBS': os.getenv('MAX_CONCURRENT_JOBS', '2'),
-        'LOG_LEVEL': os.getenv('LOG_LEVEL', 'INFO'),
-        'LOG_FORMAT': os.getenv('LOG_FORMAT', 'text'),
-        'LOG_JSON_INDENT': os.getenv('LOG_JSON_INDENT', '0'),
-    }
-    
-    for key, value in env_vars.items():
-        if value is not None:
-            if value.isdigit():
-                config[key] = int(value)
-            else:
-                try:
-                    config[key] = float(value)
-                except:
-                    config[key] = value
-    
-    # Lade aus .env Datei
-    env_paths = ["/app/config/.env", "/app/.env", "/app/../.env", ".env"]
-    for env_path in env_paths:
-        if os.path.exists(env_path):
-            try:
-                with open(env_path, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#') and '=' in line:
-                            key, value = line.split('=', 1)
-                            key = key.strip()
-                            value = value.strip().strip('"').strip("'")
-                            if value:
-                                if value.isdigit():
-                                    config[key] = int(value)
-                                else:
-                                    try:
-                                        config[key] = float(value)
-                                    except:
-                                        config[key] = value
-                break
-            except Exception:
-                continue
-    
-    # Lade aus YAML-Datei
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                file_config = yaml.safe_load(f)
-                if file_config:
-                    config.update(file_config)
-        except Exception:
-            pass
-    
-    if not config:
-        return get_default_config()
-    
-    return config
-
-def save_config(config):
-    """Speichert Konfiguration in YAML-Datei UND .env Datei"""
-    try:
-        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-    except (OSError, PermissionError):
-        raise
-    
-    try:
-        with open(CONFIG_FILE, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
-    except (OSError, PermissionError) as e:
-        raise OSError(f"Config-Datei kann nicht geschrieben werden: {e}")
-    
-    env_content = f"""# ============================================================================
-# ML TRAINING SERVICE - Umgebungsvariablen
-# ============================================================================
-DB_DSN={config.get('DB_DSN', 'postgresql://user:pass@localhost:5432/crypto')}
-API_PORT={config.get('API_PORT', 8000)}
-STREAMLIT_PORT={config.get('STREAMLIT_PORT', 8501)}
-MODEL_STORAGE_PATH={config.get('MODEL_STORAGE_PATH', '/app/models')}
-API_BASE_URL={config.get('API_BASE_URL', 'http://localhost:8000')}
-JOB_POLL_INTERVAL={config.get('JOB_POLL_INTERVAL', 5)}
-MAX_CONCURRENT_JOBS={config.get('MAX_CONCURRENT_JOBS', 2)}
-LOG_LEVEL={config.get('LOG_LEVEL', 'INFO')}
-LOG_FORMAT={config.get('LOG_FORMAT', 'text')}
-LOG_JSON_INDENT={config.get('LOG_JSON_INDENT', 0)}
-"""
-    try:
-        os.makedirs(os.path.dirname(ENV_FILE), exist_ok=True)
-        with open(ENV_FILE, 'w') as f:
-            f.write(env_content)
-    except (OSError, PermissionError):
-        pass
-    
-    return True
-
-def get_default_config():
-    """Gibt Standard-Konfiguration zurück"""
-    return {
-        "DB_DSN": "postgresql://user:pass@localhost:5432/crypto",
-        "API_PORT": 8000,
-        "STREAMLIT_PORT": 8501,
-        "MODEL_STORAGE_PATH": "/app/models",
-        "API_BASE_URL": "http://localhost:8000",  # Interner Port (Container-intern)
-        "JOB_POLL_INTERVAL": 5,
-        "MAX_CONCURRENT_JOBS": 2,
-        "LOG_LEVEL": "INFO",
-        "LOG_FORMAT": "text",
-        "LOG_JSON_INDENT": 0
-    }
-
-def validate_url(url, allow_empty=False):
-    """Validiert eine URL"""
-    if allow_empty and not url:
-        return True, None
-    if not url:
-        return False, "URL darf nicht leer sein"
-    try:
-        result = urlparse(url)
-        if not result.scheme or not result.netloc:
-            return False, "Ungültige URL-Format"
-        if result.scheme not in ["http", "https", "postgresql"]:
-            return False, f"Ungültiges Protokoll: {result.scheme}"
-        return True, None
-    except Exception as e:
-        return False, f"URL-Validierungsfehler: {str(e)}"
-
-def validate_port(port):
-    """Validiert einen Port"""
-    try:
-        port_int = int(port)
-        if 1 <= port_int <= 65535:
-            return True, None
-        return False, "Port muss zwischen 1 und 65535 liegen"
-    except ValueError:
-        return False, "Port muss eine Zahl sein"
-
-def reload_config():
-    """Lädt die Konfiguration im Service neu (ohne Neustart)"""
-    try:
-        response = httpx.post(f"{API_BASE_URL}/api/reload-config", timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            return True, data.get("message", "Konfiguration wurde neu geladen")
-        else:
-            return False, f"Fehler: HTTP {response.status_code}"
-    except Exception as e:
-        return False, f"Fehler beim Neuladen: {str(e)}"
-
-def restart_service():
-    """Startet Service neu (über Docker API, damit .env neu geladen wird)"""
-    # Coolify-Modus: Versuche zuerst Config-Neuladen über API
-    if COOLIFY_MODE:
-        success, message = reload_config()
-        if success:
-            return True, f"✅ {message} (ohne Neustart - funktioniert in Coolify!)"
-        else:
-            return False, f"⚠️ Coolify-Modus: {message}. Falls das nicht funktioniert, starte den Service im Coolify-Dashboard neu."
-    
-    try:
-        import docker
-        client = docker.from_env()
-        
-        # Versuche verschiedene Container-Namen
-        container_names = [SERVICE_NAME, "ml-training-service", "ml-training"]
-        container = None
-        for name in container_names:
-            try:
-                container = client.containers.get(name)
-                break
-            except docker.errors.NotFound:
-                continue
-        
-        # Falls nicht gefunden: Suche nach Containern mit "ml-training" im Namen
-        if not container:
-            try:
-                all_containers = client.containers.list(all=True)
-                for cont in all_containers:
-                    if "ml-training" in cont.name.lower() or "training" in cont.name.lower():
-                        container = cont
-                        break
-            except Exception:
-                pass
-        
-        if not container:
-            return False, "Container 'ml-training-service' nicht gefunden. Bitte prüfe ob der Service läuft."
-        
-        # Stoppe Container
-        container.stop(timeout=10)
-        
-        # Starte Container neu (lädt .env neu)
-        container.start()
-        
-        return True, "✅ Service erfolgreich neu gestartet! Neue Environment Variables werden geladen."
-        
-    except ImportError:
-        # Docker Python Client nicht verfügbar - versuche über Docker Socket direkt
-        return _restart_via_subprocess()
-    except Exception as e:
-        return _restart_via_subprocess()
-
-def _restart_via_subprocess():
-    """Versucht Service über subprocess neu zu starten"""
-    try:
-        import subprocess
-        import os
-        
-        # Prüfe ob docker compose verfügbar ist
-        docker_compose_cmd = None
-        for cmd in ["docker", "docker-compose"]:
-            try:
-                result = subprocess.run(
-                    [cmd, "--version"],
-                    capture_output=True,
-                    timeout=5
-                )
-                if result.returncode == 0:
-                    docker_compose_cmd = cmd
-                    break
-            except:
-                continue
-        
-        if not docker_compose_cmd:
-            return False, "Docker/Docker Compose nicht gefunden. Bitte manuell neu starten: docker compose restart ml-training"
-        
-        # Versuche über Docker Socket zu arbeiten
-        # Finde das Projekt-Verzeichnis (wo docker-compose.yml ist)
-        compose_file = "/app/../docker-compose.yml"
-        if not os.path.exists(compose_file):
-            compose_file = "/app/docker-compose.yml"
-        
-        if os.path.exists(compose_file):
-            work_dir = os.path.dirname(compose_file)
-            result = subprocess.run(
-                [docker_compose_cmd, "restart", "ml-training"],
-                cwd=work_dir,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            if result.returncode == 0:
-                return True, "✅ Service neu gestartet (via docker compose)"
-            else:
-                return False, f"❌ Docker Compose Fehler: {result.stderr}"
-        else:
-            return False, "⚠️ docker-compose.yml nicht gefunden. Bitte manuell neu starten: `docker compose restart ml-training`"
-            
-    except Exception as e:
-        return False, f"❌ Fehler: {str(e)}. Bitte manuell neu starten: `docker compose restart ml-training`"
-
-def get_service_logs(lines=100):
-    """Holt Logs vom Service"""
-    try:
-        import docker
-        client = docker.from_env()
-        container_names = [SERVICE_NAME, "ml-training-service", "ml-training"]
-        container = None
-        for name in container_names:
-            try:
-                container = client.containers.get(name)
-                break
-            except:
-                continue
-        
-        if container:
-            logs = container.logs(tail=lines, timestamps=True).decode('utf-8')
-            log_lines = logs.strip().split('\n')
-            return '\n'.join(reversed(log_lines))
-        else:
-            return "❌ Container nicht gefunden"
-    except ImportError:
-        try:
-            import subprocess
-            compose_paths = ["/app/../docker-compose.yml", "/app/docker-compose.yml"]
-            work_dir = "/app"
-            for path in compose_paths:
-                if os.path.exists(path):
-                    work_dir = os.path.dirname(path)
-                    break
-            
-            result = subprocess.run(
-                ["docker", "compose", "logs", "--tail", str(lines), "ml-training"],
-                cwd=work_dir,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            if result.returncode == 0:
-                log_lines = result.stdout.strip().split('\n')
-                return '\n'.join(reversed(log_lines))
-            else:
-                return f"Fehler: {result.stderr}"
-        except Exception as e:
-            return f"Fehler: {str(e)}"
-    except Exception as e:
-        return f"Fehler: {str(e)}"
 
 # ============================================================
 # Seiten
@@ -550,13 +191,15 @@ def page_overview():
                 header_col1, header_col2, header_col3, header_col4 = st.columns([0.3, 4, 0.6, 0.6])
                 with header_col1:
                     checked = st.checkbox("", value=is_selected, key=checkbox_key, label_visibility="collapsed")
-                    # Update session_state ohne st.rerun() - Streamlit rendert automatisch neu
-                    if checked and model_id not in st.session_state.get('selected_model_ids', []):
-                        if 'selected_model_ids' not in st.session_state:
-                            st.session_state['selected_model_ids'] = []
-                        st.session_state['selected_model_ids'].append(model_id)
-                    elif not checked and model_id in st.session_state.get('selected_model_ids', []):
-                        st.session_state['selected_model_ids'].remove(model_id)
+                    if checked != is_selected:
+                        if checked:
+                            if model_id not in st.session_state['selected_model_ids']:
+                                st.session_state['selected_model_ids'].append(model_id)
+                                st.rerun()
+                        else:
+                            if model_id in st.session_state['selected_model_ids']:
+                                st.session_state['selected_model_ids'].remove(model_id)
+                                st.rerun()
                 
                 with header_col2:
                     # Name mit Umbenennen
@@ -810,7 +453,7 @@ def page_overview():
                         st.session_state['compare_model_a_id'] = model_a_id
                         st.session_state['compare_model_b_id'] = model_b_id
                         st.session_state['page'] = 'compare'
-                        st.rerun()
+                    st.rerun()
             
                 with col2:
                     if st.button("🗑️ Beide löschen", key="btn_delete_both", use_container_width=True, type="secondary"):
@@ -867,68 +510,324 @@ def page_overview():
         st.info("ℹ️ Keine Modelle gefunden")
 
 def page_train():
-    """Neues Modell trainieren - ÜBERARBEITETE VERSION"""
-    st.title("🚀 Neues Modell erstellen")
+    """Neues Modell trainieren"""
+    st.title("➕ Neues Modell trainieren")
     
+    # Info-Box am Anfang
     st.info("""
-    **📖 Schnellstart:** 
-    Fülle die minimalen Felder aus und klicke auf "Modell trainieren".
-    Erweiterte Optionen findest du im ausklappbaren Bereich unten.
+    **📖 Anleitung:** 
+    Diese Seite erstellt ein neues Machine-Learning-Modell. Alle Felder mit * sind Pflichtfelder.
+    Nutze die ℹ️-Icons für detaillierte Erklärungen zu jedem Parameter.
     """)
     
-    # Initialisiere session_state für Features (einmalig, außerhalb des Forms)
-    if 'train_features_initialized' not in st.session_state:
-        for category, features_in_category in FEATURE_CATEGORIES.items():
-            for feature in features_in_category:
-                if f"feature_{feature}" not in st.session_state:
-                    st.session_state[f"feature_{feature}"] = True  # Default: aktiviert
-        st.session_state['train_features_initialized'] = True
+    # NEU: Zeitbasierte Vorhersagen AUSSERHALB des Forms (damit sofort reagiert wird)
+    with st.expander("⏰ Zeitbasierte Vorhersage (optional)", expanded=False):
+        st.markdown("""
+        **Was ist zeitbasierte Vorhersage?**
+        
+        Statt zu lernen "Ist price_close > 50000?", lernt das Modell:
+        - "Steigt price_close in den nächsten 5 Minuten um 30%?"
+        - "Fällt price_close in den nächsten 10 Minuten um 20%?"
+        
+        **Vorteil:** Das Modell kann zukünftige Preisbewegungen vorhersagen, nicht nur aktuelle Werte.
+        """)
+        
+        use_time_based = st.checkbox(
+            "✅ Zeitbasierte Vorhersage aktivieren", 
+            value=True,  # Standardmäßig aktiviert
+            help="Aktiviert die zeitbasierte Vorhersage. Wenn aktiviert, werden die Ziel-Variablen-Felder ausgeblendet.",
+            key="use_time_based_checkbox"
+        )
+        
+        if use_time_based:
+            st.success("✅ Zeitbasierte Vorhersage ist aktiviert. Die Ziel-Variablen-Felder werden ausgeblendet.")
     
-    # Lade verfügbare Daten (einmalig, außerhalb des Forms)
-    data_availability = api_get("/api/data-availability")
-    min_timestamp = data_availability.get('min_timestamp') if data_availability else None
-    max_timestamp = data_availability.get('max_timestamp') if data_availability else None
+    # Feature-Engineering Checkbox DIREKT NACH Zeitbasierte Vorhersage (damit sofort reagiert wird)
+    with st.expander("🔧 Feature-Engineering (optional)", expanded=True):
+        st.markdown("""
+        **Was ist Feature-Engineering?**
+        
+        Feature-Engineering erstellt automatisch zusätzliche Features aus den Basis-Features:
+        - **Momentum:** Wie schnell ändert sich der Preis?
+        - **Volumen-Patterns:** Gibt es ungewöhnliche Volumen-Spikes?
+        - **Whale-Activity:** Große Käufe/Verkäufe erkannt?
+        - **Volatilität:** Wie stark schwankt der Preis?
+        - **Order-Book-Imbalance:** Verkaufsdruck vs. Kaufdruck
+        
+        **Auswirkung:** Aus ~6 Basis-Features werden ~40 erweiterte Features erstellt.
+        Dies verbessert die Modell-Performance erheblich, besonders bei Pump-Detection.
+        """)
+        
+        use_engineered_features = st.checkbox(
+            "✅ Erweiterte Pump-Detection Features verwenden",
+            value=True,  # Standardmäßig aktiviert
+            help="Aktiviert Feature-Engineering. Erstellt ~40 zusätzliche Features aus den Basis-Features.",
+            key="use_engineered_features_checkbox"
+        )
+        
+        feature_engineering_windows = None
+        if use_engineered_features:
+            st.success("✅ Feature-Engineering ist aktiviert. ~40 zusätzliche Features werden erstellt.")
+            
+            st.markdown("**Fenstergrößen für Rolling-Berechnungen:**")
+            st.caption("""
+            Diese Fenster bestimmen, über welchen Zeitraum die Features berechnet werden:
+            - **Kleine Fenster (3-5):** Erkennt kurzfristige Muster (Sekunden/Minuten)
+            - **Mittlere Fenster (10-15):** Erkennt mittelfristige Trends
+            - **Große Fenster (20-30):** Erkennt langfristige Trends
+            """)
+            
+            # Optional: Fenstergrößen anpassen
+            window_sizes = st.multiselect(
+                "Fenstergrößen auswählen",
+                options=[3, 5, 10, 15, 20, 30],
+                default=[5, 10, 15],
+                help="Wähle die Fenstergrößen für Rolling-Berechnungen. Mehr Fenster = mehr Features, aber langsameres Training.",
+                key="feature_engineering_windows_select"
+            )
+            if window_sizes:
+                feature_engineering_windows = window_sizes
+            else:
+                feature_engineering_windows = [5, 10, 15]  # Default
+                st.info("ℹ️ Standard-Fenstergrößen [5, 10, 15] werden verwendet.")
     
-    min_date = None
-    max_date = None
-    min_datetime = None
-    max_datetime = None
+    # SMOTE Checkbox
+    with st.expander("⚖️ Imbalanced Data Handling (optional)", expanded=True):
+        st.markdown("""
+        **Was ist Imbalanced Data?**
+        
+        Bei Pump-Detection haben wir oft viel mehr "normale" Coins als "Pump"-Coins.
+        Beispiel: 1000 normale Coins, 10 Pump-Coins → 99% vs. 1%
+        
+        **Problem:** Das Modell lernt nur "alles ist normal" und erreicht 99% Accuracy, aber erkennt keine Pumps.
+        
+        **Lösung: SMOTE** (Synthetic Minority Over-sampling Technique)
+        - Erstellt künstliche "Pump"-Beispiele
+        - Balanciert die Daten aus (z.B. 50% normal, 50% pump)
+        - Modell kann beide Klassen lernen
+        
+        **Auswirkung:** Modell erkennt Pumps viel besser, auch wenn sie selten sind.
+        """)
+        
+        use_smote = st.checkbox(
+            "✅ SMOTE für Imbalanced Data aktivieren (empfohlen)",
+            value=True,
+            help="SMOTE wird automatisch angewendet, wenn Label-Balance < 30% oder > 70%",
+            key="use_smote_checkbox"
+        )
+        
+        if use_smote:
+            st.success("✅ SMOTE ist aktiviert. Wird automatisch angewendet bei unausgewogenen Daten.")
+            st.caption("ℹ️ SMOTE wird nur angewendet, wenn die Daten unausgewogen sind (< 30% oder > 70% einer Klasse).")
     
-    if min_timestamp and max_timestamp:
-        try:
-            min_datetime = datetime.fromisoformat(min_timestamp.replace('Z', '+00:00'))
-            max_datetime = datetime.fromisoformat(max_timestamp.replace('Z', '+00:00'))
-            min_date = min_datetime.date()
-            max_date = max_datetime.date()
-            st.info(f"📊 **Verfügbare Daten:** Von {min_datetime.strftime('%d.%m.%Y %H:%M')} bis {max_datetime.strftime('%d.%m.%Y %H:%M')}")
-        except Exception as e:
-            st.warning(f"⚠️ Konnte Datumsbereich nicht parsen: {e}")
-    else:
-        st.warning("⚠️ Keine Trainingsdaten in der Datenbank gefunden!")
+    # TimeSeriesSplit Checkbox
+    with st.expander("🔀 Cross-Validation (optional)", expanded=True):
+        st.markdown("""
+        **Was ist Cross-Validation?**
+        
+        Cross-Validation teilt die Daten in mehrere Teile auf und testet das Modell auf jedem Teil.
+        Dies gibt eine realistischere Einschätzung der Modell-Performance.
+        
+        **TimeSeriesSplit vs. normaler Split:**
+        - **Normaler Split:** Zufällige Aufteilung → kann Daten aus der Zukunft zum Training verwenden (unrealistisch!)
+        - **TimeSeriesSplit:** Respektiert die zeitliche Reihenfolge → Training nur mit vergangenen Daten (realistisch!)
+        
+        **Auswirkung:** Metriken sind realistischer, da das Modell nur mit vergangenen Daten trainiert wird.
+        """)
+        
+        use_timeseries_split = st.checkbox(
+            "✅ TimeSeriesSplit für Cross-Validation verwenden (empfohlen)",
+            value=True,
+            help="Verwendet TimeSeriesSplit statt einfachem Train-Test-Split für realistischere Metriken",
+            key="use_timeseries_split_checkbox"
+        )
+        
+        cv_splits = 5
+        if use_timeseries_split:
+            st.success("✅ TimeSeriesSplit ist aktiviert. Respektiert die zeitliche Reihenfolge der Daten.")
+            
+            st.markdown("**Anzahl Splits:**")
+            st.caption("""
+            Mehr Splits = mehr Validierung, aber langsameres Training:
+            - **3 Splits:** Schnell, weniger Validierung
+            - **5 Splits:** Ausgewogen (empfohlen)
+            - **10 Splits:** Sehr gründlich, aber langsam
+            """)
+            
+            cv_splits = st.number_input(
+                "Anzahl Splits für Cross-Validation",
+                min_value=3,
+                max_value=10,
+                value=5,
+                step=1,
+                help="Mehr Splits = mehr Validierung, aber langsameres Training",
+                key="cv_splits_input"
+            )
     
-    # ============================================================
-    # FORMULAR
-    # ============================================================
-    with st.form("train_model_form", clear_on_submit=False):
+    # Hyperparameter-Checkbox auch außerhalb des Forms
+    with st.expander("⚙️ Hyperparameter (optional)", expanded=False):
+        st.markdown("""
+        **Was sind Hyperparameter?**
+        
+        Hyperparameter steuern, wie das Modell lernt:
+        - **n_estimators:** Anzahl der Bäume (mehr = genauer, aber langsamer)
+        - **max_depth:** Maximale Tiefe der Bäume (tiefer = komplexer, aber Overfitting-Risiko)
+        
+        **Standard-Werte:** Funktionieren für die meisten Fälle gut.
+        **Anpassung:** Nur nötig, wenn du die Performance optimieren willst.
+        """)
+        
+        use_custom_params = st.checkbox(
+            "✅ Hyperparameter anpassen", 
+            value=True,  # Standardmäßig aktiviert
+            help="Aktiviert die Anpassung der Hyperparameter. Standard-Werte funktionieren meist gut.",
+            key="use_custom_params_checkbox"
+        )
+        
+        if use_custom_params:
+            st.info("ℹ️ Hyperparameter-Anpassung ist aktiviert. Die Felder werden im Formular angezeigt.")
+    
+    with st.form("train_model_form"):
         # Basis-Informationen
         st.subheader("📝 Basis-Informationen")
-        model_name = st.text_input("Modell-Name *", placeholder="z.B. PumpDetector_v1", key="train_model_name")
+        model_name = st.text_input("Modell-Name *", placeholder="z.B. PumpDetector_v1")
         model_type = st.selectbox(
             "Modell-Typ *",
             ["random_forest", "xgboost"],
-            index=0,
-            help="Random Forest: Robust, schnell. XGBoost: Beste Performance",
-            key="train_model_type"
+            help="Random Forest: Robust, schnell. XGBoost: Beste Performance"
         )
+        description = st.text_area("Beschreibung (optional)", placeholder="Kurze Beschreibung des Modells")
         
         st.divider()
         
+        # Features
+        st.subheader("📊 Features")
+        st.markdown("""
+        **Was sind Features?**
+        
+        Features sind die Eingabedaten für das Modell. Das Modell lernt aus diesen Daten, Muster zu erkennen.
+        
+        **Empfohlene Features:**
+        - **price_open, price_high, price_low, price_close:** Preis-Informationen
+        - **volume_sol, volume_usd:** Handelsvolumen
+        - **buy_volume_sol, sell_volume_sol:** Käufer- vs. Verkäufer-Volumen
+        """)
+        
+        features = st.multiselect(
+            "Features auswählen *",
+            AVAILABLE_FEATURES,
+            default=AVAILABLE_FEATURES,  # Alle Features standardmäßig aktiviert
+            help="Welche Spalten aus coin_metrics sollen verwendet werden? Mehr Features = mehr Information, aber langsameres Training.",
+            label_visibility="visible"
+        )
+        
+        if not features:
+            st.warning("⚠️ Bitte wähle mindestens ein Feature aus!")
+        
+        st.divider()
+        
+        # Phasen
+        st.subheader("🪙 Coin-Phasen")
+        st.markdown("""
+        **Was sind Coin-Phasen?**
+        
+        Coins durchlaufen verschiedene Phasen (z.B. Baby Zone, Survival Zone, Mature Zone).
+        Jede Phase hat unterschiedliche Eigenschaften und Intervalle.
+        
+        **Auswirkung:** Wenn Phasen ausgewählt werden, werden nur Daten aus diesen Phasen verwendet.
+        Wenn keine Phasen ausgewählt werden, werden alle Phasen verwendet.
+        """)
+        
+        phases_list = load_phases()
+        
+        if phases_list:
+            # Erstelle Anzeige-Strings mit interval_seconds
+            phase_options = {}
+            for phase in phases_list:
+                phase_id = phase.get("id")
+                phase_name = phase.get("name", f"Phase {phase_id}")
+                interval_sec = phase.get("interval_seconds", 0)
+                # Format: "Phase 1 (60s)" oder "Phase 1 - Name (60s)"
+                if phase_name and phase_name != f"Phase {phase_id}":
+                    display_name = f"Phase {phase_id} - {phase_name} ({interval_sec}s)"
+                else:
+                    display_name = f"Phase {phase_id} ({interval_sec}s)"
+                phase_options[phase_id] = display_name
+            
+            # Sortiere nach Phase-ID
+            sorted_phases = sorted(phase_options.items())
+            phase_labels = [label for _, label in sorted_phases]
+            phase_ids = [pid for pid, _ in sorted_phases]
+            
+            selected_labels = st.multiselect(
+                "Phasen auswählen (optional)",
+                phase_labels,
+                help="Welche Coin-Phasen sollen einbezogen werden? (Leer = alle). Interval in Sekunden wird angezeigt.",
+                label_visibility="visible"
+            )
+            
+            if selected_labels:
+                st.info(f"ℹ️ {len(selected_labels)} Phase(n) ausgewählt. Nur Daten aus diesen Phasen werden verwendet.")
+            else:
+                st.info("ℹ️ Keine Phasen ausgewählt. Alle Phasen werden verwendet.")
+            
+            # Konvertiere Labels zurück zu IDs
+            phases = [phase_ids[phase_labels.index(label)] for label in selected_labels] if selected_labels else None
+        else:
+            # Kein Fallback - nur Warnung wenn Phasen nicht geladen werden können
+            st.error("❌ Phasen konnten nicht aus ref_coin_phases geladen werden. Bitte API-Verbindung prüfen.")
+            phases = None
+        
+        # Target - NUR anzeigen wenn zeitbasierte Vorhersage NICHT aktiviert ist
+        if not use_time_based:
+            st.subheader("🎯 Ziel-Variable")
+            target_var = st.selectbox("Target-Variable *", AVAILABLE_TARGETS)
+            target_operator = st.selectbox("Operator *", [">", "<", ">=", "<=", "="])
+            target_value = st.number_input("Target-Wert *", min_value=0.0, value=50000.0, step=1000.0)
+            st.info(f"💡 Ziel: {target_var} {target_operator} {target_value}")
+        else:
+            # Bei zeitbasierter Vorhersage: target_var wird später aus den zeitbasierten Feldern gesetzt
+            pass
+            # Wir brauchen es für create_time_based_labels, aber zeigen es nicht an
+            target_var = None  # Wird später gesetzt
+            target_operator = None
+            target_value = None
+        
         # Training-Zeitraum
         st.subheader("📅 Training-Zeitraum")
-        col1, col2 = st.columns(2)
         
+        # Lade verfügbare Daten (nur Min/Max Timestamps)
+        data_availability = api_get("/api/data-availability")
+        
+        min_timestamp = data_availability.get('min_timestamp') if data_availability else None
+        max_timestamp = data_availability.get('max_timestamp') if data_availability else None
+        
+        # Parse Timestamps
+        min_date = None
+        max_date = None
+        min_datetime = None
+        max_datetime = None
+        
+        if min_timestamp and max_timestamp:
+            try:
+                min_datetime = datetime.fromisoformat(min_timestamp.replace('Z', '+00:00'))
+                max_datetime = datetime.fromisoformat(max_timestamp.replace('Z', '+00:00'))
+                min_date = min_datetime.date()
+                max_date = max_datetime.date()
+                
+                st.info(f"📊 **Verfügbare Daten:** Von {min_datetime.strftime('%d.%m.%Y %H:%M')} bis {max_datetime.strftime('%d.%m.%Y %H:%M')}")
+            except Exception as e:
+                st.warning(f"⚠️ Konnte Datumsbereich nicht parsen: {e}")
+        else:
+            st.warning("⚠️ Keine Trainingsdaten in der Datenbank gefunden!")
+        
+        st.divider()
+        
+        col1, col2 = st.columns(2)
         with col1:
             st.markdown("**🕐 Start-Zeitpunkt**")
+            
+            # Default-Start-Datum: Min-Datum oder heute - 30 Tage
             if min_date:
                 default_start_date = min_date
             else:
@@ -939,9 +838,11 @@ def page_train():
                 value=default_start_date,
                 min_value=min_date,
                 max_value=max_date,
-                key="train_start_date"
+                key="train_start_date",
+                help=f"Wähle ein Datum zwischen {min_date.strftime('%d.%m.%Y') if min_date else 'N/A'} und {max_date.strftime('%d.%m.%Y') if max_date else 'N/A'}"
             )
             
+            # Default-Start-Uhrzeit: Min-Uhrzeit oder 00:00
             if min_datetime and train_start_date == min_date:
                 default_start_time = min_datetime.time()
             else:
@@ -950,11 +851,22 @@ def page_train():
             train_start_time = st.time_input(
                 "Start-Uhrzeit *",
                 value=default_start_time,
-                key="train_start_time"
+                key="train_start_time",
+                help="Wähle eine Uhrzeit"
             )
+            
+            train_start_dt = datetime.combine(train_start_date, train_start_time).replace(tzinfo=timezone.utc)
+            
+            # Warnung wenn außerhalb des verfügbaren Bereichs
+            if min_datetime and train_start_dt < min_datetime:
+                st.warning(f"⚠️ Start-Zeitpunkt liegt vor dem ältesten Eintrag ({min_datetime.strftime('%d.%m.%Y %H:%M')})")
+            elif max_datetime and train_start_dt > max_datetime:
+                st.warning(f"⚠️ Start-Zeitpunkt liegt nach dem neuesten Eintrag ({max_datetime.strftime('%d.%m.%Y %H:%M')})")
         
         with col2:
             st.markdown("**🕐 Ende-Zeitpunkt**")
+            
+            # Default-End-Datum: Max-Datum oder heute
             if max_date:
                 default_end_date = max_date
             else:
@@ -963,11 +875,13 @@ def page_train():
             train_end_date = st.date_input(
                 "Ende-Datum *",
                 value=default_end_date,
-                min_value=train_start_date if train_start_date else None,
+                min_value=train_start_date,  # Ende muss nach Start sein
                 max_value=max_date,
-                key="train_end_date"
+                key="train_end_date",
+                help=f"Wähle ein Datum nach dem Start-Datum (max. {max_date.strftime('%d.%m.%Y') if max_date else 'N/A'})"
             )
             
+            # Default-End-Uhrzeit: Max-Uhrzeit oder 23:59
             if max_datetime and train_end_date == max_date:
                 default_end_time = max_datetime.time()
             else:
@@ -976,276 +890,292 @@ def page_train():
             train_end_time = st.time_input(
                 "Ende-Uhrzeit *",
                 value=default_end_time,
-                key="train_end_time"
+                key="train_end_time",
+                help="Wähle eine Uhrzeit"
             )
-        
-        st.divider()
-        
-        # Vorhersage-Ziel (zeitbasiert - Standard)
-        st.subheader("⏰ Vorhersage-Ziel")
-        st.caption("Das Modell lernt: 'Steigt/Fällt die Variable in X Minuten um Y%?'")
-        
-        time_based_target_var = st.selectbox(
-            "Variable überwachen *",
-            AVAILABLE_TARGETS, 
-            index=0,
-            help="Welche Variable soll für die prozentuale Änderung verwendet werden?",
-            key="train_target_var"
-        )
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            future_minutes = st.number_input(
-                "Zeitraum (Minuten) *", 
-                min_value=1, 
-                max_value=60,
-                value=10,
-                step=1,
-                help="In wie vielen Minuten soll die Änderung stattfinden?",
-                key="train_future_minutes"
-            )
-        with col2:
-            min_percent_change = st.number_input(
-                "Mindest-Änderung (%) *",
-                min_value=0.1, 
-                max_value=1000.0,
-                value=5.0,
-                step=0.5,
-                help="Mindest-Prozentuale Änderung",
-                key="train_min_percent"
-            )
-        with col3:
-            direction = st.selectbox(
-                "Richtung *",
-                ["up", "down"],
-                format_func=lambda x: "Steigt" if x == "up" else "Fällt",
-                help="Steigt oder fällt die Variable?",
-                key="train_direction"
-            )
-        
-        # Label-Erstellung Transparenz
-        st.info(f"""
-        📊 **Label-Erstellung:**
-        
-        Für jede Zeile in den Trainingsdaten wird geprüft:
-        
-        1. **Aktueller Wert**: `{time_based_target_var}` zum Zeitpunkt T
-        2. **Zukünftiger Wert**: `{time_based_target_var}` zum Zeitpunkt T + {future_minutes} Minuten
-        3. **Prozentuale Änderung**: `((Zukunft - Aktuell) / Aktuell) * 100`
-        
-        **Label = 1** wenn:
-        - Änderung >= {min_percent_change}% (bei "Steigt")
-        - Änderung <= -{min_percent_change}% (bei "Fällt")
-        
-        **Label = 0** wenn:
-        - Bedingung nicht erfüllt
-        
-        **Beispiel:**
-        - Aktuell: 100 SOL
-        - Zukunft ({future_minutes} Min): 106 SOL
-        - Änderung: +6%
-        - **Label = 1** ✅ (weil 6% >= {min_percent_change}%)
-        """)
-        
-        st.divider()
-        
-        # ============================================================
-        # ERWEITERTE OPTIONEN (ausklappbar)
-        # ============================================================
-        with st.expander("⚙️ Erweiterte Optionen", expanded=False):
-            # Feature-Auswahl mit Kategorien
-            st.subheader("📊 Features")
-            st.caption("Wähle Features aus verschiedenen Kategorien. Kritische Features sind für Rug-Detection empfohlen.")
             
-            # Verwende Tabs für Feature-Kategorien
-            feature_tabs = st.tabs(list(FEATURE_CATEGORIES.keys()))
+            train_end_dt = datetime.combine(train_end_date, train_end_time).replace(tzinfo=timezone.utc)
             
-            for tab_idx, (category, features_in_category) in enumerate(FEATURE_CATEGORIES.items()):
-                with feature_tabs[tab_idx]:
-                    st.markdown(f"**{category}**")
-                    for feature in features_in_category:
-                        is_critical = feature in CRITICAL_FEATURES
-                        st.checkbox(
-                            feature,
-                            value=st.session_state.get(f"feature_{feature}", True),
-                            key=f"feature_{feature}",
-                            help=f"{'⚠️ KRITISCH für Rug-Detection!' if is_critical else ''}"
-                        )
-            
-            # Sammle Features aus ALLEN Kategorien (nach Tabs)
-            selected_features = []
-            for category, features_in_category in FEATURE_CATEGORIES.items():
-                for feature in features_in_category:
-                    if st.session_state.get(f"feature_{feature}", False):
-                        selected_features.append(feature)
-            
-            # Fallback: Wenn keine Features ausgewählt wurden, verwende alle
-            if not selected_features:
-                st.warning("⚠️ Keine Features ausgewählt! Alle Features werden verwendet.")
-                selected_features = AVAILABLE_FEATURES.copy()
-            else:
-                st.info(f"✅ {len(selected_features)} Feature(s) ausgewählt")
-            
+            # Warnung wenn außerhalb des verfügbaren Bereichs
+            if min_datetime and train_end_dt < min_datetime:
+                st.warning(f"⚠️ Ende-Zeitpunkt liegt vor dem ältesten Eintrag ({min_datetime.strftime('%d.%m.%Y %H:%M')})")
+            elif max_datetime and train_end_dt > max_datetime:
+                st.warning(f"⚠️ Ende-Zeitpunkt liegt nach dem neuesten Eintrag ({max_datetime.strftime('%d.%m.%Y %H:%M')})")
+        # Zeitbasierte Vorhersage-Felder (nur wenn aktiviert)
+        future_minutes = None
+        min_percent_change = None
+        direction = "up"
+        time_based_target_var = None
+        
+        if use_time_based:
             st.divider()
+            st.subheader("⏰ Zeitbasierte Vorhersage - Konfiguration")
+            st.markdown("""
+            **Zeitbasierte Vorhersage konfigurieren:**
             
-            # Phasen-Filter
-            st.subheader("🪙 Coin-Phasen (optional)")
-            phases_list = load_phases()
-            phases = None
+            Definiere, welche Variable überwacht werden soll und welche Bedingungen erfüllt sein müssen.
+            Das Modell lernt: "Steigt/Fällt die Variable in X Minuten um X%?"
+            """)
             
-            if phases_list:
-                phase_options = {}
-                for phase in phases_list:
-                    phase_id = phase.get("id")
-                    phase_name = phase.get("name", f"Phase {phase_id}")
-                    interval_sec = phase.get("interval_seconds", 0)
-                    if phase_name and phase_name != f"Phase {phase_id}":
-                        display_name = f"Phase {phase_id} - {phase_name} ({interval_sec}s)"
-                    else:
-                        display_name = f"Phase {phase_id} ({interval_sec}s)"
-                    phase_options[phase_id] = display_name
-                
-                sorted_phases = sorted(phase_options.items())
-                phase_labels = [label for _, label in sorted_phases]
-                phase_ids = [pid for pid, _ in sorted_phases]
-                
-                selected_labels = st.multiselect(
-                    "Phasen auswählen (optional)",
-                    phase_labels,
-                    help="Welche Coin-Phasen sollen einbezogen werden? (Leer = alle)",
-                    key="train_phases"
+            # Target-Variable für zeitbasierte Vorhersage
+            st.markdown("**Variable überwachen** *")
+            st.caption("Welche Variable soll für die prozentuale Änderung verwendet werden? (z.B. price_close)")
+            time_based_target_var = st.selectbox(
+                "Welche Variable wird überwacht? *", 
+                AVAILABLE_TARGETS, 
+                help="Diese Variable wird für die prozentuale Änderung verwendet (z.B. 'price_close')",
+                key="time_based_target_var",
+                label_visibility="collapsed"
+            )
+            
+            st.markdown("**Vorhersage-Parameter:**")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("**Zeitraum (Minuten)** *")
+                st.caption("In wie vielen Minuten soll die Änderung stattfinden? (z.B. 5 = nächste 5 Minuten)")
+                future_minutes = st.number_input(
+                    "Zeitraum (Minuten) *", 
+                    min_value=1, 
+                    max_value=60,
+                    value=5, 
+                    step=1,
+                    help="In wie vielen Minuten soll die Änderung stattfinden? Beispiel: 5 = Modell lernt 'Steigt price_close in den nächsten 5 Minuten um X%?'",
+                    key="future_minutes_input",
+                    label_visibility="collapsed"
                 )
-                
-                phases = [phase_ids[phase_labels.index(label)] for label in selected_labels] if selected_labels else None
-            else:
-                st.warning("⚠️ Phasen konnten nicht geladen werden.")
+                st.caption(f"ℹ️ Vorhersage für die nächsten {future_minutes} Minute(n)")
+            with col2:
+                st.markdown("**Min. Prozentuale Änderung** *")
+                st.caption("Mindest-Prozentuale Änderung (z.B. 30 = 30% Steigerung)")
+                min_percent_change = st.number_input(
+                    "Min. Prozentuale Änderung *", 
+                    min_value=0.1, 
+                    max_value=1000.0,
+                    value=30.0, 
+                    step=1.0,
+                    help="Mindest-Prozentuale Änderung. Beispiel: 30 = Modell lernt 'Steigt price_close um mindestens 30%?'",
+                    key="min_percent_change_input",
+                    label_visibility="collapsed"
+                )
+                st.caption(f"ℹ️ Mindestens {min_percent_change}% Änderung erforderlich")
+            with col3:
+                st.markdown("**Richtung** *")
+                st.caption("Steigt (up) oder fällt (down) die Variable?")
+                direction = st.selectbox(
+                    "Richtung *",
+                    ["up", "down"],
+                    format_func=lambda x: "Steigt" if x == "up" else "Fällt",
+                    help="Steigt (up) oder fällt (down) die Variable? Beispiel: 'up' = Modell lernt 'Steigt price_close?'",
+                    key="direction_select",
+                    label_visibility="collapsed"
+                )
+                direction_emoji = "📈" if direction == "up" else "📉"
+                st.caption(f"ℹ️ Richtung: {direction_emoji} {direction.upper()}")
             
-            st.divider()
-            
-            # Hyperparameter
-            st.subheader("⚙️ Hyperparameter (optional)")
-            use_custom_params = st.checkbox("Hyperparameter anpassen", value=False, key="train_use_custom_params")
-            params = None
-            
-            if use_custom_params:
-                if model_type == "random_forest":
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        n_estimators = st.number_input("n_estimators", min_value=10, max_value=1000, value=100, step=10, key="train_rf_n_estimators")
-                    with col2:
-                        max_depth = st.number_input("max_depth", min_value=1, max_value=50, value=10, step=1, key="train_rf_max_depth")
-                    params = {"n_estimators": int(n_estimators), "max_depth": int(max_depth)}
-                else:  # xgboost
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        n_estimators = st.number_input("n_estimators", min_value=10, max_value=1000, value=100, step=10, key="train_xgb_n_estimators")
-                    with col2:
-                        max_depth = st.number_input("max_depth", min_value=1, max_value=20, value=6, step=1, key="train_xgb_max_depth")
-                    with col3:
-                        learning_rate = st.number_input("learning_rate", min_value=0.01, max_value=1.0, value=0.1, step=0.01, key="train_xgb_learning_rate")
-                    params = {
-                        "n_estimators": int(n_estimators),
-                        "max_depth": int(max_depth),
-                        "learning_rate": float(learning_rate)
-                    }
-            
-            st.divider()
-            
-            # Feature-Engineering
-            st.subheader("🔧 Feature-Engineering (optional)")
-            use_engineered_features = st.checkbox(
-                "Erweiterte Pump-Detection Features verwenden",
-                value=True,
-                help="Erstellt ~40 zusätzliche Features aus den Basis-Features",
-                key="train_use_engineered_features"
-            )
-            feature_engineering_windows = [5, 10, 15] if use_engineered_features else None
-            
-            st.divider()
-            
-            # Marktstimmung
-            st.subheader("📈 Marktstimmung (optional)")
-            use_market_context = st.checkbox(
-                "SOL-Preis-Kontext hinzufügen",
-                value=False,
-                help="Hilft dem Modell zu unterscheiden: 'Token steigt, während SOL stabil ist' vs. 'Token steigt, weil SOL steigt'",
-                key="train_use_market_context"
-            )
-            
-            st.divider()
-            
-            # SMOTE & Cross-Validation
-            st.subheader("⚖️ Daten-Handling (optional)")
-            use_smote = st.checkbox("SMOTE für Imbalanced Data (empfohlen)", value=True, key="train_use_smote")
-            use_timeseries_split = st.checkbox("TimeSeriesSplit für Cross-Validation (empfohlen)", value=True, key="train_use_timeseries_split")
-            cv_splits = st.number_input("Anzahl Splits", min_value=3, max_value=10, value=5, step=1, key="train_cv_splits") if use_timeseries_split else 5
+            st.success(f"💡 **Ziel:** {time_based_target_var} soll in {future_minutes} Minuten um {min_percent_change}% {'steigen' if direction == 'up' else 'fallen'}")
         
-        # Submit Button
+        # Hyperparameter (nur wenn Checkbox aktiviert)
+        params = None
+        if use_custom_params:
+            st.divider()
+            st.subheader("⚙️ Hyperparameter anpassen")
+            st.markdown("""
+            **Hyperparameter anpassen:**
+            
+            Diese Parameter steuern, wie das Modell lernt. Standard-Werte funktionieren für die meisten Fälle gut.
+            """)
+            
+            if model_type == "random_forest":
+                st.markdown("**Random Forest Parameter:**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**n_estimators**")
+                    st.caption("Anzahl der Bäume im Modell. Mehr Bäume = genauer, aber langsameres Training.")
+                    n_estimators = st.number_input(
+                        "n_estimators", 
+                        min_value=10,
+                        max_value=1000,
+                        value=100, 
+                        step=10,
+                        help="Anzahl der Entscheidungsbäume. Mehr = genauer, aber langsamer. Standard: 100",
+                        label_visibility="collapsed"
+                    )
+                    st.caption(f"ℹ️ {n_estimators} Bäume werden verwendet")
+                with col2:
+                    st.markdown("**max_depth**")
+                    st.caption("Maximale Tiefe der Bäume. Tiefer = komplexer, aber Overfitting-Risiko.")
+                    max_depth = st.number_input(
+                        "max_depth", 
+                        min_value=1,
+                        max_value=50,
+                        value=10, 
+                        step=1,
+                        help="Maximale Tiefe der Bäume. Mehr = komplexer, aber Overfitting-Risiko. Standard: 10",
+                        label_visibility="collapsed"
+                    )
+                    st.caption(f"ℹ️ Maximale Tiefe: {max_depth}")
+                params = {"n_estimators": int(n_estimators), "max_depth": int(max_depth)}
+            else:  # xgboost
+                st.markdown("**XGBoost Parameter:**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.markdown("**n_estimators**")
+                    st.caption("Anzahl der Boosting-Runden. Mehr = genauer, aber langsamer.")
+                    n_estimators = st.number_input(
+                        "n_estimators", 
+                        min_value=10,
+                        max_value=1000,
+                        value=100, 
+                        step=10,
+                        help="Anzahl der Boosting-Runden. Mehr = genauer, aber langsamer. Standard: 100",
+                        key="xgboost_n_estimators",
+                        label_visibility="collapsed"
+                    )
+                    st.caption(f"ℹ️ {n_estimators} Runden")
+                with col2:
+                    st.markdown("**max_depth**")
+                    st.caption("Maximale Tiefe der Bäume. Mehr = komplexer.")
+                    max_depth = st.number_input(
+                        "max_depth", 
+                        min_value=1,
+                        max_value=20,
+                        value=6, 
+                        step=1,
+                        help="Maximale Tiefe der Bäume. Mehr = komplexer. Standard: 6",
+                        key="xgboost_max_depth",
+                        label_visibility="collapsed"
+                    )
+                    st.caption(f"ℹ️ Tiefe: {max_depth}")
+                with col3:
+                    st.markdown("**learning_rate**")
+                    st.caption("Lernrate. Kleiner = langsamer, aber oft genauer.")
+                    learning_rate = st.number_input(
+                        "learning_rate", 
+                        min_value=0.01, 
+                        max_value=1.0, 
+                        value=0.1, 
+                        step=0.01,
+                        help="Lernrate. Kleiner = langsamer, aber oft genauer. Standard: 0.1",
+                        key="xgboost_learning_rate",
+                        label_visibility="collapsed"
+                    )
+                    st.caption(f"ℹ️ Rate: {learning_rate}")
+                params = {
+                    "n_estimators": int(n_estimators),
+                    "max_depth": int(max_depth),
+                    "learning_rate": float(learning_rate)
+                }
+        
+        st.divider()
+        
+        # Zusammenfassung vor Submit
+        st.markdown("### 📋 Zusammenfassung")
+        st.caption("Überprüfe deine Einstellungen vor dem Training:")
+        
+        summary_col1, summary_col2 = st.columns(2)
+        with summary_col1:
+            st.markdown(f"**Modell:** {model_name if model_name else '❌ (Name fehlt)'}")
+            st.markdown(f"**Typ:** {model_type}")
+            st.markdown(f"**Features:** {len(features)} ausgewählt")
+            if use_engineered_features:
+                st.markdown("**Feature-Engineering:** ✅ Aktiviert")
+            if use_smote:
+                st.markdown("**SMOTE:** ✅ Aktiviert")
+            if use_timeseries_split:
+                st.markdown(f"**Cross-Validation:** ✅ TimeSeriesSplit ({cv_splits} Splits)")
+        with summary_col2:
+            if use_time_based:
+                if 'time_based_target_var' in locals() and time_based_target_var:
+                    st.markdown(f"**Vorhersage:** {time_based_target_var} in {future_minutes if 'future_minutes' in locals() and future_minutes else 'N/A'}min um {min_percent_change if 'min_percent_change' in locals() and min_percent_change else 'N/A'}% {'↑' if direction == 'up' else '↓'}")
+                else:
+                    st.markdown("**Vorhersage:** ⏰ Zeitbasiert (konfigurieren)")
+            else:
+                if 'target_var' in locals() and target_var:
+                    st.markdown(f"**Ziel:** {target_var} {target_operator if 'target_operator' in locals() and target_operator else ''} {target_value if 'target_value' in locals() and target_value is not None else ''}")
+                else:
+                    st.markdown("**Ziel:** ❌ (nicht konfiguriert)")
+            if 'train_start_dt' in locals() and 'train_end_dt' in locals():
+                if train_start_dt < train_end_dt:
+                    duration_days = (train_end_dt - train_start_dt).total_seconds() / 86400.0
+                    st.markdown(f"**Zeitraum:** {duration_days:.1f} Tage")
+                else:
+                    st.markdown("**Zeitraum:** ❌ (Start muss vor Ende liegen)")
+            else:
+                st.markdown("**Zeitraum:** ❌ (nicht konfiguriert)")
+        
+        # Submit
         submitted = st.form_submit_button("🚀 Modell trainieren", type="primary", use_container_width=True)
     
-    # ============================================================
-    # VERARBEITUNG NACH FORM-SUBMISSION
-    # ============================================================
+    # ⚠️ WICHTIG: Alles nach dem Form-Block ist außerhalb des Forms!
+    # Verarbeite Form-Submission außerhalb des Forms
     if submitted:
-        # Erstelle datetime-Objekte
-        try:
-            train_start_dt = datetime.combine(train_start_date, train_start_time).replace(tzinfo=timezone.utc)
-            train_end_dt = datetime.combine(train_end_date, train_end_time).replace(tzinfo=timezone.utc)
-        except Exception as e:
-            st.error(f"❌ Fehler beim Erstellen der Datetime-Objekte: {e}")
-            return
-        
-        # Validierung
-        errors = []
-        
-        if not model_name or not model_name.strip():
-            errors.append("❌ Modell-Name ist erforderlich!")
-        
-        # Sammle Features erneut (sicherstellen, dass alle erfasst werden)
-        selected_features = []
-        for category, features_in_category in FEATURE_CATEGORIES.items():
-            for feature in features_in_category:
-                if st.session_state.get(f"feature_{feature}", False):
-                    selected_features.append(feature)
-        
-        if not selected_features:
-            selected_features = AVAILABLE_FEATURES.copy()  # Fallback: Alle Features
-        
-        if train_start_dt >= train_end_dt:
-            errors.append("❌ Start-Zeitpunkt muss vor End-Zeitpunkt liegen!")
-        
-        if errors:
-            for error in errors:
-                st.error(error)
-            return
-        
-        # API-Call
-        with st.spinner("🔄 Erstelle Training-Job..."):
-            try:
+            # Validierung
+            if not model_name:
+                st.error("❌ Modell-Name ist erforderlich!")
+                return
+            if not features:
+                st.error("❌ Mindestens ein Feature muss ausgewählt werden!")
+                return
+            # Validierung: Zeitbasierte Vorhersage
+            if use_time_based:
+                if not time_based_target_var:
+                    st.error("❌ Variable ist erforderlich (welche Variable wird überwacht?)!")
+                    return
+                if not future_minutes or future_minutes <= 0:
+                    st.error("❌ Zukunft (Minuten) muss größer als 0 sein!")
+                    return
+                if not min_percent_change or min_percent_change <= 0:
+                    st.error("❌ Min. Prozent-Änderung muss größer als 0 sein!")
+                    return
+                # Setze target_var für API
+                target_var = time_based_target_var
+            
+            # Validierung: Normale Vorhersage
+            if not use_time_based:
+                if not target_var:
+                    st.error("❌ Target-Variable ist erforderlich!")
+                    return
+                if not target_operator:
+                    st.error("❌ Operator ist erforderlich!")
+                    return
+                if target_value is None:
+                    st.error("❌ Target-Wert ist erforderlich!")
+                    return
+            
+            if train_start_dt >= train_end_dt:
+                st.error("❌ Start-Zeitpunkt muss vor End-Zeitpunkt liegen!")
+                return
+            
+            # API-Call
+            with st.spinner("🔄 Erstelle Training-Job..."):
+                # Konvertiere datetime zu UTC ISO-Format
                 train_start_iso = train_start_dt.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
                 train_end_iso = train_end_dt.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
                 
                 data = {
-                    "name": model_name.strip(),
+                    "name": model_name,
                     "model_type": model_type,
-                    "target_var": time_based_target_var,
-                    "operator": None,
-                    "target_value": None,
-                    "features": selected_features,
+                    "target_var": target_var,  # Wird bei zeitbasierter Vorhersage auf time_based_target_var gesetzt
+                    "operator": target_operator if not use_time_based else None,
+                    "target_value": float(target_value) if not use_time_based and target_value is not None else None,
+                    "features": features,
                     "phases": phases if phases else None,
                     "params": params,
                     "train_start": train_start_iso,
                     "train_end": train_end_iso,
-                    "use_time_based_prediction": True,
-                    "future_minutes": int(future_minutes),
-                    "min_percent_change": float(min_percent_change),
-                    "direction": direction,
+                    # NEU: Zeitbasierte Parameter
+                    "use_time_based_prediction": use_time_based,
+                    "future_minutes": int(future_minutes) if use_time_based and future_minutes else None,
+                    "min_percent_change": float(min_percent_change) if use_time_based and min_percent_change else None,
+                    "direction": direction if use_time_based else "up",
+                    # NEU: Feature-Engineering Parameter
                     "use_engineered_features": use_engineered_features,
-                    "feature_engineering_windows": feature_engineering_windows,
+                    "feature_engineering_windows": feature_engineering_windows if use_engineered_features and feature_engineering_windows else None,
+                    # NEU: SMOTE Parameter
                     "use_smote": use_smote,
+                    # NEU: TimeSeriesSplit Parameter
                     "use_timeseries_split": use_timeseries_split,
-                    "cv_splits": int(cv_splits) if use_timeseries_split else None,
-                    "use_market_context": use_market_context
+                    "cv_splits": int(cv_splits) if use_timeseries_split else None
                 }
                 
                 result = api_post("/api/models/create", data)
@@ -1254,18 +1184,15 @@ def page_train():
                     st.success(f"✅ Job erstellt! Job-ID: {result.get('job_id')}")
                     st.info(f"📊 Status: {result.get('status')}. Das Modell wird jetzt trainiert.")
                     st.balloons()
+                    # Speichere Job-ID in session_state für Button außerhalb des Forms
                     st.session_state['last_created_job_id'] = result.get('job_id')
-                else:
-                    st.error("❌ Fehler beim Erstellen des Jobs. Bitte prüfe die Logs.")
-            except Exception as e:
-                st.error(f"❌ Fehler beim Erstellen des Jobs: {str(e)}")
-                st.exception(e)
     
-    # Weiterleitung zu Jobs-Seite
+    # ⚠️ WICHTIG: Button muss KOMPLETT AUSSERHALB des Forms sein!
+    # Weiterleitung zu Jobs-Seite (nur anzeigen wenn Job erstellt wurde)
     if st.session_state.get('last_created_job_id'):
         if st.button("📊 Zu Jobs anzeigen", key="goto_jobs_after_train"):
             st.session_state['page'] = 'jobs'
-            st.session_state.pop('last_created_job_id', None)
+            st.session_state.pop('last_created_job_id', None)  # Entferne nach Navigation
             st.rerun()
 
 def page_test():
@@ -2051,13 +1978,15 @@ def page_comparisons():
                 header_col1, header_col2, header_col3 = st.columns([0.3, 4, 0.6])
                 with header_col1:
                     checked = st.checkbox("", value=is_selected, key=checkbox_key, label_visibility="collapsed")
-                    # Update session_state ohne st.rerun() - Streamlit rendert automatisch neu
-                    if checked and comp_id not in st.session_state.get('selected_comparison_ids', []):
-                        if 'selected_comparison_ids' not in st.session_state:
-                            st.session_state['selected_comparison_ids'] = []
-                        st.session_state['selected_comparison_ids'].append(comp_id)
-                    elif not checked and comp_id in st.session_state.get('selected_comparison_ids', []):
-                        st.session_state['selected_comparison_ids'].remove(comp_id)
+                    if checked != is_selected:
+                        if checked:
+                            if comp_id not in st.session_state['selected_comparison_ids']:
+                                st.session_state['selected_comparison_ids'].append(comp_id)
+                                st.rerun()
+                        else:
+                            if comp_id in st.session_state['selected_comparison_ids']:
+                                st.session_state['selected_comparison_ids'].remove(comp_id)
+                                st.rerun()
                 
                 with header_col2:
                     st.markdown(f"**{model_a_name} vs {model_b_name}**")
@@ -2320,13 +2249,15 @@ def page_test_results():
                 header_col1, header_col2, header_col3 = st.columns([0.3, 4, 0.6])
                 with header_col1:
                     checked = st.checkbox("", value=is_selected, key=checkbox_key, label_visibility="collapsed")
-                    # Update session_state ohne st.rerun() - Streamlit rendert automatisch neu
-                    if checked and test_id not in st.session_state.get('selected_test_ids', []):
-                        if 'selected_test_ids' not in st.session_state:
-                            st.session_state['selected_test_ids'] = []
-                        st.session_state['selected_test_ids'].append(test_id)
-                    elif not checked and test_id in st.session_state.get('selected_test_ids', []):
-                        st.session_state['selected_test_ids'].remove(test_id)
+                    if checked != is_selected:
+                        if checked:
+                            if test_id not in st.session_state['selected_test_ids']:
+                                st.session_state['selected_test_ids'].append(test_id)
+                                st.rerun()
+                        else:
+                            if test_id in st.session_state['selected_test_ids']:
+                                st.session_state['selected_test_ids'].remove(test_id)
+                                st.rerun()
                 
                 with header_col2:
                     st.markdown(f"**{model_name}**")
@@ -3901,395 +3832,121 @@ def page_details():
             st.rerun()
 
 # ============================================================
-# Tab-Funktionen
-# ============================================================
-
-def tab_dashboard():
-    """Dashboard Tab"""
-    st.title("📊 Dashboard")
-    
-    # Health Status
-    health = api_get("/api/health")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        if health:
-            status = "🟢 Healthy" if health.get("status") == "healthy" else "🔴 Degraded"
-            st.metric("Status", status)
-        else:
-            st.metric("Status", "❌ Nicht erreichbar")
-    
-    with col2:
-        if health:
-            st.metric("Jobs verarbeitet", health.get("total_jobs_processed", 0))
-        else:
-            st.metric("Jobs verarbeitet", "-")
-    
-    with col3:
-        if health:
-            db_status = "✅ Verbunden" if health.get("db_connected") else "❌ Getrennt"
-            st.metric("Datenbank", db_status)
-        else:
-            st.metric("Datenbank", "-")
-    
-    with col4:
-        if health:
-            uptime = health.get("uptime_seconds", 0)
-            hours = uptime // 3600
-            minutes = (uptime % 3600) // 60
-            st.metric("Uptime", f"{int(hours)}h {int(minutes)}m")
-        else:
-            st.metric("Uptime", "-")
-    
-    # Modelle-Übersicht
-    st.subheader("📋 Modelle-Übersicht")
-    models = api_get("/api/models")
-    if models:
-        st.info(f"📊 {len(models)} Modell(e) gefunden")
-    else:
-        st.info("ℹ️ Keine Modelle gefunden")
-    
-    # Service-Management
-    st.subheader("🔧 Service-Management")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("🔄 Konfiguration neu laden", type="primary"):
-            with st.spinner("Konfiguration wird neu geladen..."):
-                success, message = reload_config()
-                if success:
-                    st.success(message)
-                    time.sleep(2)
-                else:
-                    st.error(message)
-                st.rerun()
-    
-    with col2:
-        if st.button("🔄 Seite aktualisieren"):
-            st.rerun()
-    
-    # Auto-Refresh - ohne time.sleep() um UI nicht zu blockieren
-    auto_refresh_enabled = st.checkbox("🔄 Auto-Refresh (5s)", key="auto_refresh_dashboard")
-    if auto_refresh_enabled:
-        # Verwende st.empty() und st.rerun() ohne time.sleep() - Streamlit wird automatisch neu rendern
-        placeholder = st.empty()
-        placeholder.info("⏳ Auto-Refresh aktiv...")
-        st.rerun()
-    
-def tab_configuration():
-    """Konfiguration Tab"""
-    st.title("⚙️ Konfiguration")
-    
-    try:
-        config = load_config()
-    except Exception as e:
-        st.error(f"⚠️ Fehler beim Laden der Config: {e}")
-        config = get_default_config()
-    
-    using_env_vars = bool(os.getenv('DB_DSN'))
-    
-    if using_env_vars:
-        st.info("🌐 **Coolify-Modus erkannt:** Environment Variables haben Priorität, aber du kannst die Konfiguration trotzdem hier speichern.")
-    else:
-        st.info("💡 Änderungen werden in der Konfigurationsdatei gespeichert. Nutze den 'Konfiguration neu laden' Button, um Änderungen ohne Neustart zu übernehmen.")
-    
-    with st.form("config_form"):
-        st.subheader("🗄️ Datenbank Einstellungen")
-        config["DB_DSN"] = st.text_input("DB DSN", value=config.get("DB_DSN", ""), help="PostgreSQL Connection String")
-        if config["DB_DSN"]:
-            db_valid, db_error = validate_url(config["DB_DSN"], allow_empty=False)
-            if not db_valid:
-                st.error(f"❌ {db_error}")
-        
-        st.subheader("🔌 Port Einstellungen")
-        config["API_PORT"] = st.number_input("API Port", min_value=1, max_value=65535, value=config.get("API_PORT", 8000))
-        config["STREAMLIT_PORT"] = st.number_input("Streamlit Port", min_value=1, max_value=65535, value=config.get("STREAMLIT_PORT", 8501))
-        
-        st.subheader("📁 Pfad Einstellungen")
-        config["MODEL_STORAGE_PATH"] = st.text_input("Model Storage Path", value=config.get("MODEL_STORAGE_PATH", "/app/models"))
-        config["API_BASE_URL"] = st.text_input("API Base URL", value=config.get("API_BASE_URL", "http://localhost:8000"), help="Innerhalb des Containers: localhost:8000, von außen: localhost:8012")
-        if config["API_BASE_URL"]:
-            api_valid, api_error = validate_url(config["API_BASE_URL"], allow_empty=False)
-            if not api_valid:
-                st.error(f"❌ {api_error}")
-        
-        st.subheader("⚙️ Job Queue Einstellungen")
-        config["JOB_POLL_INTERVAL"] = st.number_input("Job Poll Interval (Sekunden)", min_value=1, max_value=300, value=config.get("JOB_POLL_INTERVAL", 5))
-        config["MAX_CONCURRENT_JOBS"] = st.number_input("Max Concurrent Jobs", min_value=1, max_value=10, value=config.get("MAX_CONCURRENT_JOBS", 2))
-        
-        st.subheader("📝 Logging Einstellungen")
-        config["LOG_LEVEL"] = st.selectbox("Log Level", ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], index=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"].index(config.get("LOG_LEVEL", "INFO")))
-        config["LOG_FORMAT"] = st.selectbox("Log Format", ["text", "json"], index=["text", "json"].index(config.get("LOG_FORMAT", "text")))
-        config["LOG_JSON_INDENT"] = st.number_input("Log JSON Indent", min_value=0, max_value=4, value=config.get("LOG_JSON_INDENT", 0))
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            save_button = st.form_submit_button("💾 Konfiguration speichern", type="primary")
-        with col2:
-            reset_button = st.form_submit_button("🔄 Auf Standard zurücksetzen")
-        
-        if save_button:
-            errors = []
-            
-            db_valid, db_error = validate_url(config["DB_DSN"], allow_empty=False)
-            if not db_valid:
-                errors.append(f"DB DSN: {db_error}")
-            
-            api_valid, api_error = validate_url(config["API_BASE_URL"], allow_empty=False)
-            if not api_valid:
-                errors.append(f"API Base URL: {api_error}")
-            
-            if errors:
-                st.error("❌ **Validierungsfehler:**")
-                for error in errors:
-                    st.error(f"  - {error}")
-            else:
-                try:
-                    result = save_config(config)
-                    if result:
-                        st.session_state.config_saved = True
-                        st.success("✅ Konfiguration gespeichert!")
-                        if using_env_vars:
-                            st.info("💡 **Tipp:** Nutze den 'Konfiguration neu laden' Button unten, um die Änderungen ohne Neustart zu übernehmen.")
-                        else:
-                            st.info("💡 **Tipp:** Nutze den 'Konfiguration neu laden' Button unten, um die Änderungen ohne Neustart zu übernehmen.")
-                        st.session_state.config_just_saved = True
-                except Exception as e:
-                    st.error(f"❌ **Fehler beim Speichern:** {e}")
-        
-        if reset_button:
-            try:
-                default_config = get_default_config()
-                if save_config(default_config):
-                    st.session_state.config_saved = True
-                    st.success("✅ Konfiguration auf Standard zurückgesetzt!")
-                    st.warning("⚠️ Bitte Service neu starten oder 'Konfiguration neu laden' Button unten verwenden!")
-                    st.session_state.config_just_saved = True
-            except Exception as e:
-                st.error(f"❌ **Fehler beim Zurücksetzen:** {e}")
-    
-    # Reload-Button
-    st.divider()
-    st.subheader("🔄 Konfiguration neu laden")
-    st.caption("Lädt die gespeicherte Konfiguration im Service neu (ohne Neustart)")
-    if st.button("🔄 Konfiguration neu laden", type="primary", key="reload_config_button"):
-        with st.spinner("Konfiguration wird neu geladen..."):
-            success, message = reload_config()
-            if success:
-                st.success(f"✅ {message}")
-                st.info("💡 Die neue Konfiguration ist jetzt aktiv! Kein Neustart nötig.")
-            else:
-                st.error(f"❌ {message}")
-                st.info("💡 Falls der Reload fehlschlägt, starte den Service manuell neu.")
-    
-    # Neustart-Button
-    if st.session_state.get("config_saved", False):
-        st.divider()
-        st.subheader("🔄 Service-Neustart")
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.info("💡 Die Konfiguration wurde gespeichert. Starte den Service neu, damit die neuen Werte geladen werden.")
-        with col2:
-            if st.button("🔄 Service neu starten", type="primary", use_container_width=True):
-                with st.spinner("Service wird neu gestartet..."):
-                    success, message = restart_service()
-                    if success:
-                        st.success(message)
-                        st.info("⏳ Bitte warte 5-10 Sekunden, bis der Service vollständig neu gestartet ist.")
-                        st.session_state.config_saved = False
-                        time.sleep(3)
-                        st.rerun()
-                    else:
-                        st.error(message)
-                        st.info("💡 Du kannst den Service auch manuell neu starten: `docker compose restart ml-training`")
-    
-    # Auto-Reload nach Speichern
-    if st.session_state.get("config_just_saved", False):
-        st.session_state.config_just_saved = False
-        time.sleep(0.5)
-        st.rerun()
-    
-    # Aktuelle Konfiguration anzeigen
-    st.subheader("📄 Aktuelle Konfiguration")
-    st.json(config)
-
-def tab_logs():
-    """Logs Tab"""
-    st.title("📋 Service Logs")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        lines = st.number_input("Anzahl Zeilen", min_value=10, max_value=1000, value=100, step=10, key="logs_lines_input")
-    
-    with col2:
-        refresh_logs = st.button("🔄 Logs aktualisieren", key="refresh_logs_button")
-        if refresh_logs:
-            st.rerun()
-    
-    logs = get_service_logs(lines=lines)
-    
-    st.text_area(
-        "Service Logs (neueste oben)",
-        logs,
-        height=600,
-        key="logs_display",
-        help="Die neuesten Logs stehen oben, die ältesten unten."
-    )
-    
-    if not logs or logs.strip() == "":
-        st.warning("⚠️ Keine Logs verfügbar. Prüfe ob der Service läuft.")
-    
-    auto_refresh = st.checkbox("🔄 Auto-Refresh Logs (10s)", key="auto_refresh_logs")
-    if auto_refresh:
-        # Verwende st.empty() und st.rerun() ohne time.sleep() - Streamlit wird automatisch neu rendern
-        placeholder = st.empty()
-        placeholder.info("⏳ Auto-Refresh aktiv...")
-        st.rerun()
-
-def tab_metrics():
-    """Metriken Tab"""
-    st.title("📈 Metriken")
-    
-    if st.button("🔄 Metriken aktualisieren"):
-        st.rerun()
-    
-    # Prometheus Metrics
-    try:
-        response = httpx.get(f"{API_BASE_URL}/api/metrics", timeout=5)
-        if response.status_code == 200:
-            metrics = response.text
-            st.subheader("📄 Prometheus Metriken (Raw)")
-            st.code(metrics, language="text")
-            
-            # Parse Metriken
-            metrics_dict = {}
-            for line in metrics.split('\n'):
-                if line and not line.startswith('#'):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        metric_name = parts[0]
-                        try:
-                            metric_value = float(parts[1]) if '.' in parts[1] else int(parts[1])
-                            metrics_dict[metric_name] = metric_value
-                        except:
-                            metrics_dict[metric_name] = parts[1]
-            
-            st.subheader("📊 Metriken als strukturierte Daten")
-            st.json(metrics_dict)
-        else:
-            st.error(f"❌ Fehler beim Abrufen der Metriken: HTTP {response.status_code}")
-    except Exception as e:
-        st.error(f"❌ Fehler beim Abrufen der Metriken: {str(e)}")
-    
-    auto_refresh_metrics = st.checkbox("🔄 Auto-Refresh Metriken (5s)", key="auto_refresh_metrics")
-    if auto_refresh_metrics:
-        # Verwende st.empty() und st.rerun() ohne time.sleep() - Streamlit wird automatisch neu rendern
-        placeholder = st.empty()
-        placeholder.info("⏳ Auto-Refresh aktiv...")
-        st.rerun()
-
-def tab_info():
-    """Info Tab"""
-    st.title("ℹ️ Projekt-Informationen")
-    
-    st.header("📋 Was macht dieses Projekt?")
-    st.markdown("""
-    **ML Training Service** ist ein Machine-Learning-Service für Coin-Bot Training.
-    
-    Das System:
-    - ✅ Trainiert ML-Modelle (Random Forest, XGBoost)
-    - ✅ Verwaltet Trainings-Jobs in einer Queue
-    - ✅ Speichert Modelle persistent
-    - ✅ Bietet eine Web-UI für Monitoring und Konfiguration
-    """)
-    
-    st.header("🔧 Technische Details")
-    st.markdown("""
-    **Services:**
-    - **FastAPI Service** (`app/main.py`): API-Endpunkte, Job-Queue, Health-Checks
-    - **Streamlit UI** (`app/streamlit_app.py`): Web-Interface für Monitoring und Konfiguration
-    
-    **Ports:**
-    - **API**: Port `8012` (FastAPI)
-    - **Web UI**: Port `8502` (Streamlit)
-    """)
-    
-    st.header("📚 Dokumentation")
-    st.markdown("""
-    - **[README.md](../README.md)** - Projekt-Übersicht
-    - **[DEPLOYMENT.md](../docs/DEPLOYMENT.md)** - Deployment-Anleitung
-    - **[COOLIFY_DEPLOYMENT.md](../docs/COOLIFY_DEPLOYMENT.md)** - Coolify Deployment
-    """)
-
-# ============================================================
 # Main App
 # ============================================================
 
 def main():
-    """Hauptfunktion mit Tab-basiertem Layout"""
-    st.title("🤖 ML Training Service - Control Panel")
+    """Hauptfunktion"""
+    # Sidebar Navigation
+    st.sidebar.title("🤖 ML Training Service")
     
-    # Tabs Navigation
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
-        "📊 Dashboard",
-        "⚙️ Konfiguration",
-        "📋 Logs",
-        "📈 Metriken",
-        "ℹ️ Info",
-        "🏠 Modelle",
-        "➕ Training",
-        "🧪 Testen",
-        "📋 Test-Ergebnisse",
-        "⚔️ Vergleichen",
-        "⚖️ Vergleichs-Übersicht",
-        "📊 Jobs"
-    ])
+    # Seiten-Auswahl
+    pages = {
+        "🏠 Übersicht": "overview",
+        "➕ Neues Modell trainieren": "train",
+        "🧪 Modell testen": "test",
+        "📋 Test-Ergebnisse": "test_results",
+        "⚔️ Modelle vergleichen": "compare",
+        "⚖️ Vergleichs-Übersicht": "comparisons",
+        "📊 Jobs": "jobs"
+    }
     
-    with tab1:
-        tab_dashboard()
+    # Initialisiere Session State
+    if 'page' not in st.session_state:
+        st.session_state['page'] = 'overview'
     
-    with tab2:
-        tab_configuration()
+    # Bestimme aktuelle page
+    current_page_value = st.session_state.get('page', 'overview')
     
-    with tab3:
-        tab_logs()
+    # Wenn page nicht in Sidebar ist (z.B. 'details', 'comparison_details', 'test_details'), zeige entsprechende Seite in Sidebar
+    sidebar_page_value = current_page_value
+    if current_page_value == 'details':
+        sidebar_page_value = 'overview'
+    elif current_page_value == 'comparison_details':
+        sidebar_page_value = 'comparisons'
+    elif current_page_value == 'test_details':
+        sidebar_page_value = 'test_results'
+    elif current_page_value not in pages.values():
+        sidebar_page_value = 'overview'
     
-    with tab4:
-        tab_metrics()
+    # Navigation mit Buttons statt Radio - zuverlässiger
+    st.sidebar.markdown("**Navigation**")
+    for page_key, page_value in pages.items():
+        # Markiere aktuelle Seite
+        is_active = (page_value == sidebar_page_value)
+        button_type = "primary" if is_active else "secondary"
+        
+        if st.sidebar.button(page_key, key=f"nav_{page_value}", use_container_width=True, type=button_type):
+            if page_value != current_page_value:
+                st.session_state['page'] = page_value
+                st.rerun()
     
-    with tab5:
-        tab_info()
+    # Details-Seite Indikator (wenn aktiv)
+    if current_page_value == 'details':
+        model_id = st.session_state.get('details_model_id')
+        if model_id:
+            st.sidebar.markdown("---")
+            st.sidebar.markdown("**📋 Modell-Details**")
+            st.sidebar.caption(f"Modell ID: {model_id}")
+            if st.sidebar.button("← Zurück zur Übersicht", key="back_to_overview", use_container_width=True):
+                st.session_state['page'] = 'overview'
+                st.session_state.pop('details_model_id', None)
+                st.rerun()
     
-    with tab6:
+    # Vergleichs-Details-Seite Indikator (wenn aktiv)
+    if current_page_value == 'comparison_details':
+        comparison_id = st.session_state.get('comparison_details_id')
+        if comparison_id:
+            st.sidebar.markdown("---")
+            st.sidebar.markdown("**📋 Vergleichs-Details**")
+            st.sidebar.caption(f"Vergleich ID: {comparison_id}")
+            if st.sidebar.button("← Zurück zur Vergleichs-Übersicht", key="back_to_comparisons", use_container_width=True):
+                st.session_state['page'] = 'comparisons'
+                st.session_state.pop('comparison_details_id', None)
+                st.rerun()
+    
+    # Test-Details-Seite Indikator (wenn aktiv)
+    if current_page_value == 'test_details':
+        test_id = st.session_state.get('test_details_id')
+        if test_id:
+            st.sidebar.markdown("---")
+            st.sidebar.markdown("**📋 Test-Details**")
+            st.sidebar.caption(f"Test ID: {test_id}")
+            if st.sidebar.button("← Zurück zur Test-Übersicht", key="back_to_test_results", use_container_width=True):
+                st.session_state['page'] = 'test_results'
+                st.session_state.pop('test_details_id', None)
+                st.rerun()
+    
+    # Health Check
+    health = api_get("/api/health")
+    if health:
+        status_emoji = "✅" if health.get('status') == 'healthy' else "⚠️"
+        st.sidebar.markdown(f"**Status:** {status_emoji} {health.get('status', 'unknown')}")
+        st.sidebar.markdown(f"**DB:** {'✅' if health.get('db_connected') else '❌'}")
+    
+    # Seiten rendern
+    if st.session_state['page'] == 'overview':
         page_overview()
-    
-    with tab7:
+    elif st.session_state['page'] == 'train':
         page_train()
-    
-    with tab8:
+    elif st.session_state['page'] == 'test':
         page_test()
-    
-    with tab9:
+    elif st.session_state['page'] == 'test_results':
         page_test_results()
-    
-    with tab10:
+    elif st.session_state['page'] == 'compare':
         page_compare()
-    
-    with tab11:
+    elif st.session_state['page'] == 'comparisons':
         page_comparisons()
-    
-    with tab12:
+    elif st.session_state['page'] == 'jobs':
         page_jobs()
-    
-    # Details-Seiten werden weiterhin über Session State gehandhabt
-    if st.session_state.get('page') == 'details':
+    elif st.session_state['page'] == 'details':
         page_details()
-    elif st.session_state.get('page') == 'comparison_details':
+    elif st.session_state['page'] == 'comparison_details':
         page_comparison_details()
-    elif st.session_state.get('page') == 'test_details':
+    elif st.session_state['page'] == 'test_details':
         page_test_details()
+    else:
+        page_overview()
 
 if __name__ == "__main__":
     main()

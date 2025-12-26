@@ -15,6 +15,33 @@ from sklearn.model_selection import train_test_split
 
 logger = logging.getLogger(__name__)
 
+# Default-Features (wird verwendet wenn keine Features übergeben werden)
+DEFAULT_FEATURES = [
+    # Basis OHLC
+    "price_open", "price_high", "price_low", "price_close",
+    
+    # Volumen
+    "volume_sol", "buy_volume_sol", "sell_volume_sol", "net_volume_sol",
+    
+    # Market Cap & Phase
+    "market_cap_close", "phase_id_at_time",
+    
+    # ⚠️ KRITISCH für Rug-Detection
+    "dev_sold_amount",  # Wichtigster Indikator!
+    
+    # Ratio-Metriken (Bot-Spam vs. echtes Interesse)
+    "buy_pressure_ratio",
+    "unique_signer_ratio",
+    
+    # Whale-Aktivität
+    "whale_buy_volume_sol",
+    "whale_sell_volume_sol",
+    
+    # Volatilität
+    "volatility_pct",
+    "avg_trade_size_sol"
+]
+
 # XGBoost optional (für lokales Testing ohne libomp)
 XGBOOST_AVAILABLE = False
 XGBClassifier = None
@@ -60,7 +87,8 @@ def create_model(model_type: str, params: Dict[str, Any]) -> Any:
     # ⚠️ WICHTIG: Entferne interne Parameter die nicht für Modell-Erstellung verwendet werden
     excluded_params = ['n_estimators', 'max_depth', 'min_samples_split', 'random_state', 
                        '_time_based', 'use_engineered_features', 'feature_engineering_windows',
-                       'use_smote', 'use_timeseries_split', 'cv_splits']
+                       'use_smote', 'use_timeseries_split', 'cv_splits',
+                       'use_market_context', 'exclude_features']  # Phase 2: Neue Parameter
     
     if model_type == "random_forest":
         return RandomForestClassifier(
@@ -78,7 +106,8 @@ def create_model(model_type: str, params: Dict[str, Any]) -> Any:
         # ⚠️ WICHTIG: Entferne interne Parameter die nicht für Modell-Erstellung verwendet werden
         excluded_params = ['n_estimators', 'max_depth', 'learning_rate', 'random_state',
                            '_time_based', 'use_engineered_features', 'feature_engineering_windows',
-                           'use_smote', 'use_timeseries_split', 'cv_splits']
+                           'use_smote', 'use_timeseries_split', 'cv_splits',
+                           'use_market_context', 'exclude_features']  # Phase 2: Neue Parameter
         return XGBClassifier(
             n_estimators=params.get('n_estimators', 100),
             max_depth=params.get('max_depth', 6),
@@ -171,7 +200,9 @@ def train_model_sync(
         if not target_var:
             raise ValueError("target_var muss gesetzt sein für zeitbasierte Vorhersage (z.B. 'price_close')")
         logger.info(f"⏰ Zeitbasierte Vorhersage: {future_minutes} Minuten, {min_percent_change}%, Richtung: {direction}")
-        labels = create_time_based_labels(
+        
+        # ⚠️ WICHTIG: create_time_based_labels gibt (labels, data) zurück wenn NaN entfernt wurden
+        result = create_time_based_labels(
             data, 
             target_var, 
             future_minutes, 
@@ -179,6 +210,12 @@ def train_model_sync(
             direction,
             phase_intervals  # NEU: Phase-Intervalle übergeben
         )
+        
+        # Prüfe ob Tuple zurückgegeben wurde (labels, data) oder nur labels
+        if isinstance(result, tuple):
+            labels, data = result  # Daten wurden gefiltert (NaN entfernt)
+        else:
+            labels = result  # Keine Filterung nötig
     else:
         # Normale Labels (aktuelles System)
         if not target_var or not target_operator or target_value is None:
@@ -225,6 +262,29 @@ def train_model_sync(
         logger.info(f"📊 Gesamt-Features: {len(features)}")
     else:
         logger.info("ℹ️ Feature-Engineering deaktiviert (Standard-Modus)")
+    
+    # ✅ NEUE Validierung: Prüfe kritische Features
+    from app.training.feature_engineering import validate_critical_features, CRITICAL_FEATURES
+    
+    missing_critical = validate_critical_features(features)
+    
+    if not missing_critical.get('dev_sold_amount'):
+        logger.warning(
+            "⚠️ KRITISCH: 'dev_sold_amount' fehlt in Features! "
+            "Dies ist der wichtigste Rug-Pull-Indikator!"
+        )
+    
+    if not missing_critical.get('buy_pressure_ratio'):
+        logger.warning(
+            "⚠️ WICHTIG: 'buy_pressure_ratio' fehlt - "
+            "Bot-Spam vs. echtes Interesse kann nicht erkannt werden"
+        )
+    
+    if not missing_critical.get('unique_signer_ratio'):
+        logger.warning(
+            "⚠️ WICHTIG: 'unique_signer_ratio' fehlt - "
+            "Wash-Trading kann nicht erkannt werden"
+        )
     
     # 2. Prepare Features (X) und Labels (y)
     # ⚠️ WICHTIG: features enthält jetzt auch engineered features (wenn aktiviert)
@@ -417,6 +477,26 @@ def train_model_sync(
     roc_auc_str = f"{roc_auc:.4f}" if roc_auc is not None else "N/A"
     logger.info(f"📊 Zusätzliche Metriken: ROC-AUC={roc_auc_str}, MCC={mcc:.4f}, FPR={fpr:.4f}, FNR={fnr:.4f}")
     
+    # 5.6. Rug-spezifische Metriken berechnen
+    rug_metrics = {}
+    try:
+        y_pred_proba = None
+        if hasattr(model, 'predict_proba'):
+            y_pred_proba = model.predict_proba(X_final_test)[:, 1]
+        
+        rug_metrics = calculate_rug_detection_metrics(
+            y_true=y_final_test,
+            y_pred=y_pred,
+            y_pred_proba=y_pred_proba,
+            X_test=X_final_test,
+            features=features
+        )
+        
+        # Merge mit Standard-Metriken
+        logger.info(f"📊 Rug-Detection-Metriken: {rug_metrics}")
+    except Exception as e:
+        logger.warning(f"⚠️ Fehler beim Berechnen der Rug-Detection-Metriken: {e}")
+    
     # 6. Feature Importance extrahieren (wenn verfügbar)
     feature_importance = {}
     if hasattr(model, 'feature_importances_'):
@@ -451,6 +531,7 @@ def train_model_sync(
             "fn": int(fn)
         },
         "simulated_profit_pct": float(simulated_profit_pct),  # NEU
+        "rug_detection_metrics": rug_metrics,  # NEU: Rug-spezifische Metriken
         "model_path": model_path,
         "feature_importance": feature_importance,  # Als Dict (für JSONB)
         "num_samples": len(data),
@@ -520,6 +601,17 @@ async def train_model(
     
     logger.info(f"🎯 Starte Modell-Training: {model_type}")
     
+    # 0.5. Wenn keine Features übergeben wurden, verwende Defaults
+    exclude_features = (params or {}).get('exclude_features', [])
+    if not features:
+        features = DEFAULT_FEATURES.copy()
+        logger.info(f"📊 Verwende Default-Features: {len(features)} Features")
+    
+    # Entferne ausgeschlossene Features
+    if exclude_features:
+        features = [f for f in features if f not in exclude_features]
+        logger.info(f"📊 Features nach Ausschluss: {len(features)} Features (ausgeschlossen: {exclude_features})")
+    
     # 1. Lade Default-Parameter aus DB (async)
     default_params = await get_model_type_defaults(model_type)
     logger.info(f"📋 Default-Parameter: {default_params}")
@@ -553,7 +645,34 @@ async def train_model(
     if len(data) == 0:
         raise ValueError("Keine Trainingsdaten gefunden!")
     
-    # 3.5. Lade Phase-Intervalle (falls zeitbasierte Vorhersage aktiviert)
+    # 3.5. Lade Marktstimmung (SOL-Preis-Kontext) - OPTIONAL
+    use_market_context = final_params.get('use_market_context', False)
+    
+    if use_market_context:
+        from app.training.feature_engineering import enrich_with_market_context
+        logger.info("🌍 Füge Marktstimmung (SOL-Preis-Kontext) hinzu...")
+        data = await enrich_with_market_context(
+            data, 
+            train_start=train_start, 
+            train_end=train_end
+        )
+        
+        # Füge Context-Features zu Features-Liste hinzu
+        context_features = [
+            "sol_price_usd",
+            "sol_price_change_pct",
+            "sol_price_ma_5",
+            "sol_price_volatility"
+        ]
+        # Nur hinzufügen wenn nicht bereits vorhanden
+        for cf in context_features:
+            if cf not in features_for_training and cf in data.columns:
+                features_for_training.append(cf)
+                logger.info(f"➕ Context-Feature '{cf}' hinzugefügt")
+    else:
+        logger.info("ℹ️ Marktstimmung deaktiviert (use_market_context=False)")
+    
+    # 3.6. Lade Phase-Intervalle (falls zeitbasierte Vorhersage aktiviert)
     phase_intervals = None
     if use_time_based:
         from app.database.models import get_phase_intervals
@@ -584,4 +703,83 @@ async def train_model(
     
     logger.info(f"✅ Training erfolgreich abgeschlossen!")
     return result
+
+def calculate_rug_detection_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_pred_proba: Optional[np.ndarray],
+    X_test: np.ndarray,
+    features: List[str]
+) -> Dict[str, Any]:
+    """
+    Berechnet Rug-Pull-spezifische Metriken.
+    
+    Args:
+        y_true: Echte Labels
+        y_pred: Vorhergesagte Labels
+        y_pred_proba: Vorhergesagte Wahrscheinlichkeiten (optional)
+        X_test: Test-Features
+        features: Liste der Feature-Namen
+    
+    Returns:
+        Dict mit Rug-Detection-Metriken
+    """
+    from sklearn.metrics import confusion_matrix
+    
+    metrics = {}
+    
+    # 1. Dev-Sold Detection Rate (wenn Feature vorhanden)
+    if 'dev_sold_amount' in features:
+        try:
+            dev_sold_idx = features.index('dev_sold_amount')
+            dev_sold_mask = X_test[:, dev_sold_idx] > 0
+            
+            if dev_sold_mask.sum() > 0:
+                dev_sold_detected = (y_pred[dev_sold_mask] == 1).sum()
+                metrics['dev_sold_detection_rate'] = float(dev_sold_detected / dev_sold_mask.sum())
+                logger.info(f"📊 Dev-Sold Detection Rate: {metrics['dev_sold_detection_rate']:.2%}")
+        except (ValueError, IndexError) as e:
+            logger.warning(f"⚠️ Konnte Dev-Sold Detection Rate nicht berechnen: {e}")
+    
+    # 2. Wash-Trading Detection (wenn Ratio vorhanden)
+    if 'unique_signer_ratio' in features:
+        try:
+            ratio_idx = features.index('unique_signer_ratio')
+            wash_trading_mask = X_test[:, ratio_idx] < 0.15
+            
+            if wash_trading_mask.sum() > 0:
+                wash_detected = (y_pred[wash_trading_mask] == 1).sum()
+                metrics['wash_trading_detection_rate'] = float(wash_detected / wash_trading_mask.sum())
+                logger.info(f"📊 Wash-Trading Detection Rate: {metrics['wash_trading_detection_rate']:.2%}")
+        except (ValueError, IndexError) as e:
+            logger.warning(f"⚠️ Konnte Wash-Trading Detection Rate nicht berechnen: {e}")
+    
+    # 3. False Negative Cost (bei Rug-Pull-Detection ist FN teurer als FP!)
+    try:
+        cm = confusion_matrix(y_true, y_pred)
+        if cm.size == 4:  # 2x2 Matrix
+            tn, fp, fn, tp = cm.ravel()
+            
+            # FN = Rug wurde nicht erkannt (sehr teuer!)
+            # FP = False Alarm (weniger schlimm)
+            fn_cost = fn * 10.0  # FN ist 10x teurer
+            fp_cost = fp * 1.0
+            metrics['weighted_cost'] = float(fn_cost + fp_cost)
+            logger.info(f"💰 Weighted Cost: {metrics['weighted_cost']:.2f} (FN={fn}, FP={fp})")
+    except Exception as e:
+        logger.warning(f"⚠️ Konnte Weighted Cost nicht berechnen: {e}")
+    
+    # 4. Profit @ Top-K (wenn Wahrscheinlichkeiten vorhanden)
+    if y_pred_proba is not None:
+        try:
+            for k in [10, 20, 50, 100]:
+                if len(y_pred_proba) >= k:
+                    top_k_idx = np.argsort(y_pred_proba)[-k:]
+                    precision_at_k = y_true[top_k_idx].sum() / k
+                    metrics[f'precision_at_{k}'] = float(precision_at_k)
+                    logger.info(f"📊 Precision @ Top-{k}: {precision_at_k:.2%}")
+        except Exception as e:
+            logger.warning(f"⚠️ Konnte Precision @ Top-K nicht berechnen: {e}")
+    
+    return metrics
 

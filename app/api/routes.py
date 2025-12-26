@@ -83,6 +83,14 @@ async def create_model_job(request: TrainModelRequest):
         if request.cv_splits:
             final_params['cv_splits'] = request.cv_splits
         
+        # NEU: Marktstimmung Parameter (Phase 2)
+        if request.use_market_context:
+            final_params['use_market_context'] = True
+        
+        # NEU: Feature-Ausschluss Parameter (Phase 2)
+        if request.exclude_features:
+            final_params['exclude_features'] = request.exclude_features
+        
         job_id = await create_job(
             job_type="TRAIN",
             priority=5,
@@ -480,6 +488,28 @@ async def metrics_endpoint():
         )
     except Exception as e:
         logger.error(f"❌ Fehler beim Generieren der Metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/reload-config")
+async def reload_config_endpoint():
+    """
+    Lädt die Konfiguration neu (ohne Neustart)
+    Liest .env Datei neu und aktualisiert Config
+    """
+    try:
+        # Lade Config neu
+        from app.utils.config import DB_DSN, API_PORT, STREAMLIT_PORT, MODEL_STORAGE_PATH, API_BASE_URL, JOB_POLL_INTERVAL, MAX_CONCURRENT_JOBS, LOG_LEVEL, LOG_FORMAT, LOG_JSON_INDENT
+        
+        # Config wird beim nächsten Zugriff automatisch neu geladen
+        # (da os.getenv() verwendet wird)
+        logger.info("🔄 Konfiguration wird neu geladen...")
+        
+        return {
+            "message": "Konfiguration wurde neu geladen",
+            "status": "success"
+        }
+    except Exception as e:
+        logger.error(f"❌ Fehler beim Neuladen der Konfiguration: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/phases")

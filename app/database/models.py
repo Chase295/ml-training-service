@@ -90,7 +90,10 @@ async def create_model(
     # Zeitbasierte Vorhersage-Parameter
     future_minutes: Optional[int] = None,
     price_change_percent: Optional[float] = None,
-    target_direction: Optional[str] = None
+    target_direction: Optional[str] = None,
+    # NEU: Rug-Detection-Metriken & Marktstimmung
+    rug_detection_metrics: Optional[Dict[str, Any]] = None,  # NEU: Rug-Detection-Metriken
+    market_context_enabled: Optional[bool] = False  # NEU: Marktstimmung aktiviert
 ) -> int:
     """Erstellt ein neues Modell in ml_models"""
     pool = await get_pool()
@@ -109,6 +112,7 @@ async def create_model(
     feature_importance_jsonb = to_jsonb(feature_importance)
     cv_scores_jsonb = to_jsonb(cv_scores)
     confusion_matrix_jsonb = to_jsonb(confusion_matrix)
+    rug_detection_metrics_jsonb = to_jsonb(rug_detection_metrics)
     
     # ⚠️ KRITISCH: Nur EIN INSERT-Versuch! Keine verschachtelten Retry-Blöcke mehr!
     # Jeder erfolgreiche INSERT erstellt ein neues Modell - das führt zu mehreren Modellen!
@@ -129,11 +133,12 @@ async def create_model(
                     feature_importance, model_file_path, description,
                     cv_scores, cv_overfitting_gap,
                     roc_auc, mcc, fpr, fnr, confusion_matrix, simulated_profit_pct,
-                    future_minutes, price_change_percent, target_direction
+                    future_minutes, price_change_percent, target_direction,
+                    rug_detection_metrics, market_context_enabled
                 ) VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, 
                     $12, $13, $14, $15, $16::jsonb, $17, $18, $19::jsonb, $20,
-                    $21, $22, $23, $24, $25::jsonb, $26, $27, $28, $29
+                    $21, $22, $23, $24, $25::jsonb, $26, $27, $28, $29, $30::jsonb, $31
                 ) RETURNING id
                 """,
                 name, model_type, status,
@@ -144,7 +149,8 @@ async def create_model(
                 feature_importance_jsonb, model_file_path, description,
                 cv_scores_jsonb, cv_overfitting_gap,
                 roc_auc, mcc, fpr, fnr, confusion_matrix_jsonb, simulated_profit_pct,
-                future_minutes, price_change_percent, target_direction
+                future_minutes, price_change_percent, target_direction,
+                rug_detection_metrics_jsonb, market_context_enabled
             )
             # ✅ Erfolgreich - beende sofort!
             logger.info(f"✅ Modell erstellt: {name} (ID: {model_id})")
@@ -165,7 +171,7 @@ async def create_model(
                     raise DatabaseError(f"Konnte keinen eindeutigen Modell-Namen generieren nach {max_retries} Versuchen: {e}")
             
             # ✅ Fallback: Prüfe ob neue Spalten fehlen (alte Schema-Version)
-            elif any(col in error_str for col in ['cv_scores', 'cv_overfitting_gap', 'roc_auc', 'mcc', 'fpr', 'fnr', 'confusion_matrix', 'simulated_profit_pct']):
+            elif any(col in error_str for col in ['cv_scores', 'cv_overfitting_gap', 'roc_auc', 'mcc', 'fpr', 'fnr', 'confusion_matrix', 'simulated_profit_pct', 'rug_detection_metrics', 'market_context_enabled']):
                 logger.warning(f"⚠️ Neue Metriken-Spalten nicht gefunden - verwende Fallback (ohne zusätzliche Metriken)")
                 try:
                     # Fallback: Nur Standard-Spalten (ohne neue Metriken)
@@ -231,7 +237,7 @@ async def get_model(model_id: int) -> Optional[Dict[str, Any]]:
     
     # Konvertiere JSONB-Felder von Strings zu Python-Objekten (refactored: nutze Helper-Funktion)
     model_dict = dict(row)
-    jsonb_fields = ['features', 'phases', 'params', 'feature_importance', 'cv_scores', 'confusion_matrix']  # NEU: confusion_matrix
+    jsonb_fields = ['features', 'phases', 'params', 'feature_importance', 'cv_scores', 'confusion_matrix', 'rug_detection_metrics']  # NEU: rug_detection_metrics
     model_dict = convert_jsonb_fields(model_dict, jsonb_fields, direction="from")
     return model_dict
 

@@ -37,6 +37,12 @@ class TrainModelRequest(BaseModel):
     use_timeseries_split: bool = Field(True, description="TimeSeriesSplit für Cross-Validation verwenden (empfohlen für Zeitreihen)")
     cv_splits: Optional[int] = Field(5, description="Anzahl Splits für Cross-Validation (Standard: 5)")
     
+    # NEU: Marktstimmung (Phase 2)
+    use_market_context: bool = Field(False, description="Marktstimmung (SOL-Preis, etc.) für Training verwenden")
+    
+    # NEU: Feature-Ausschluss (Phase 2)
+    exclude_features: Optional[List[str]] = Field(None, description="Liste von Features die ausgeschlossen werden sollen (z.B. ['dev_sold_amount'])")
+    
     # Ziel-Variablen: Optional wenn zeitbasierte Vorhersage aktiviert (NACH use_time_based_prediction)
     target_var: Optional[str] = Field(None, description="Ziel-Variable (z.B. 'market_cap_close') - Optional wenn zeitbasierte Vorhersage aktiviert")
     operator: Optional[str] = Field(None, description="Vergleichsoperator: '>', '<', '>=', '<=', '=' - Optional wenn zeitbasierte Vorhersage aktiviert")

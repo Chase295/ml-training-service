@@ -3,16 +3,16 @@ services:
     build: .
     container_name: ml-training-service
     ports:
-      - "8000:8000"  # FastAPI (Health + Metrics + API)
-      - "8501:8501"  # Streamlit UI
+      - "8012:8000"  # FastAPI (Health + Metrics + API) - extern: 8012, intern: 8000
+      - "8502:8501"  # Streamlit UI - extern: 8502, intern: 8501
     environment:
       # ⚠️ EXTERNE Datenbank (nicht im Docker-Compose!)
       # Beispiel: postgresql://postgres:password@100.118.155.75:5432/crypto
-      - DB_DSN=${DB_DSN:-postgresql://postgres:Ycy0qfClGpXPbm3Vulz1jBL0OFfCojITnbST4JBYreS5RkBCTsYc2FkbgyUstE6g@100.76.209.59:5432/crypto}
-      - API_PORT=8000
-      - STREAMLIT_PORT=8501
+      - DB_DSN=${DB_DSN:-postgresql://postgres:9HVxi6hN6j7xpmqUx84o@100.118.155.75:5432/beta}
+      - API_PORT=8000  # Interner Port (bleibt gleich)
+      - STREAMLIT_PORT=8501  # Interner Port (bleibt gleich)
       - MODEL_STORAGE_PATH=/app/models
-      - API_BASE_URL=http://localhost:8000
+      - API_BASE_URL=http://localhost:8000  # Interner Port (Container-intern)
       - JOB_POLL_INTERVAL=5
       - MAX_CONCURRENT_JOBS=2
     volumes:

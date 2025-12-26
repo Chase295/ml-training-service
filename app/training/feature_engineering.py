@@ -74,8 +74,49 @@ async def load_training_data(
     train_start_utc = _ensure_utc(train_start)
     train_end_utc = _ensure_utc(train_end)
     
-    # Baue SQL Query
-    feature_list = ", ".join(features)
+    # ⚠️ WICHTIG: Lade IMMER alle neuen Metriken (auch wenn nicht in Features-Liste)
+    # Damit sind sie für Feature-Engineering verfügbar
+    base_columns = """
+        timestamp, 
+        phase_id_at_time,
+        
+        -- Basis OHLC
+        price_open, price_high, price_low, price_close,
+        
+        -- Volumen
+        volume_sol, buy_volume_sol, sell_volume_sol, net_volume_sol,
+        
+        -- Market Cap & Phase
+        market_cap_close,
+        
+        -- ⚠️ KRITISCH: Dev-Tracking (Rug-Pull-Indikator)
+        dev_sold_amount,
+        
+        -- Ratio-Metriken (Bot-Spam vs. echtes Interesse)
+        buy_pressure_ratio,
+        unique_signer_ratio,
+        
+        -- Whale-Aktivität
+        whale_buy_volume_sol,
+        whale_sell_volume_sol,
+        num_whale_buys,
+        num_whale_sells,
+        
+        -- Volatilität
+        volatility_pct,
+        avg_trade_size_sol
+    """
+    
+    # Zusätzliche Features aus Request (falls nicht bereits in base_columns)
+    base_column_names = [
+        'timestamp', 'phase_id_at_time', 'price_open', 'price_high', 'price_low', 'price_close',
+        'volume_sol', 'buy_volume_sol', 'sell_volume_sol', 'net_volume_sol',
+        'market_cap_close', 'dev_sold_amount', 'buy_pressure_ratio', 'unique_signer_ratio',
+        'whale_buy_volume_sol', 'whale_sell_volume_sol', 'num_whale_buys', 'num_whale_sells',
+        'volatility_pct', 'avg_trade_size_sol'
+    ]
+    
+    additional_features = [f for f in features if f not in base_column_names]
     
     # Phase-Filter
     if phases:
@@ -88,14 +129,25 @@ async def load_training_data(
         param_count = 2
     
     # ⚠️ RAM-Management: LIMIT für große Datensätze
-    query = f"""
-        SELECT timestamp, {feature_list}, phase_id_at_time
-        FROM coin_metrics
-        WHERE timestamp >= $1 AND timestamp <= $2
-        {phase_filter}
-        ORDER BY timestamp
-        LIMIT ${param_count + 1}
-    """
+    if additional_features:
+        additional_list = ", ".join(additional_features)
+        query = f"""
+            SELECT {base_columns}, {additional_list}
+            FROM coin_metrics
+            WHERE timestamp >= $1 AND timestamp <= $2
+            {phase_filter}
+            ORDER BY timestamp
+            LIMIT ${param_count + 1}
+        """
+    else:
+        query = f"""
+            SELECT {base_columns}
+            FROM coin_metrics
+            WHERE timestamp >= $1 AND timestamp <= $2
+            {phase_filter}
+            ORDER BY timestamp
+            LIMIT ${param_count + 1}
+        """
     params.append(MAX_TRAINING_ROWS)
     
     logger.info(f"📊 Lade Daten: {train_start_utc} bis {train_end_utc}, Features: {features}, Phasen: {phases}")
@@ -109,6 +161,13 @@ async def load_training_data(
     
     # Konvertiere zu DataFrame
     data = pd.DataFrame([dict(row) for row in rows])
+    
+    # ⚠️ WICHTIG: Konvertiere alle Decimal-Typen zu float (PostgreSQL liefert Decimal)
+    # Dies verhindert "unsupported operand type(s) for -: 'decimal.Decimal' and 'float'" Fehler
+    for col in data.columns:
+        if col != 'timestamp' and col != 'phase_id_at_time':  # Timestamp und Phase-ID bleiben unverändert
+            # Konvertiere zu numeric (float), ignoriere Fehler (z.B. bei Strings)
+            data[col] = pd.to_numeric(data[col], errors='coerce')
     
     # Setze timestamp als Index
     if 'timestamp' in data.columns:
@@ -127,6 +186,73 @@ async def load_training_data(
     # Prüfe ob LIMIT erreicht wurde
     if len(data) >= MAX_TRAINING_ROWS:
         logger.warning(f"⚠️ LIMIT erreicht ({MAX_TRAINING_ROWS} Zeilen)! Möglicherweise wurden Daten abgeschnitten.")
+    
+    return data
+
+async def enrich_with_market_context(
+    data: pd.DataFrame,
+    train_start: datetime,
+    train_end: datetime
+) -> pd.DataFrame:
+    """
+    Fügt Marktstimmung (SOL-Preis) zu Trainingsdaten hinzu.
+    Merge mit Forward-Fill (nimmt letzten bekannten Wert).
+    
+    Args:
+        data: DataFrame mit Trainingsdaten (muss timestamp als Index haben)
+        train_start: Start-Zeitpunkt
+        train_end: Ende-Zeitpunkt
+    
+    Returns:
+        DataFrame mit zusätzlichen Spalten: sol_price_usd, sol_price_change_pct, sol_price_ma_5, sol_price_volatility
+    """
+    pool = await get_pool()
+    
+    # Konvertiere zu UTC
+    train_start_utc = _ensure_utc(train_start)
+    train_end_utc = _ensure_utc(train_end)
+    
+    # Lade Exchange Rates
+    sql = """
+        SELECT 
+            created_at as timestamp,
+            sol_price_usd,
+            usd_to_eur_rate
+        FROM exchange_rates
+        WHERE created_at >= $1 AND created_at <= $2
+        ORDER BY created_at
+    """
+    
+    try:
+        rows = await pool.fetch(sql, train_start_utc, train_end_utc)
+        
+        if not rows:
+            logger.warning("⚠️ Keine Exchange Rates gefunden - Marktstimmung wird nicht hinzugefügt")
+            return data
+        
+        # Konvertiere zu DataFrame
+        rates_df = pd.DataFrame([dict(row) for row in rows])
+        rates_df['timestamp'] = pd.to_datetime(rates_df['timestamp'])
+        rates_df.set_index('timestamp', inplace=True)
+        
+        # Merge mit Forward-Fill (nehme letzten bekannten Wert)
+        data = data.merge(rates_df[['sol_price_usd']], left_index=True, right_index=True, how='left')
+        data['sol_price_usd'].fillna(method='ffill', inplace=True)
+        
+        # ✅ NEUE Features berechnen:
+        data['sol_price_change_pct'] = data['sol_price_usd'].pct_change() * 100
+        data['sol_price_ma_5'] = data['sol_price_usd'].rolling(5, min_periods=1).mean()
+        data['sol_price_volatility'] = data['sol_price_usd'].rolling(10, min_periods=1).std()
+        
+        # NaN-Werte durch 0 ersetzen (am Anfang der Serie)
+        data['sol_price_change_pct'].fillna(0, inplace=True)
+        data['sol_price_ma_5'].fillna(data['sol_price_usd'], inplace=True)
+        data['sol_price_volatility'].fillna(0, inplace=True)
+        
+        logger.info("✅ Marktstimmung hinzugefügt: sol_price_usd, sol_price_change_pct, sol_price_ma_5, sol_price_volatility")
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Fehler beim Laden der Exchange Rates: {e} - Marktstimmung wird nicht hinzugefügt")
     
     return data
 
@@ -237,7 +363,8 @@ def create_time_based_labels(
                 return int(round(future_minutes / avg_interval_minutes)) if avg_interval_minutes > 0 else 0
             
             interval_minutes = interval_seconds / 60.0
-            return int(round(future_minutes / interval_minutes))
+            # ⚠️ WICHTIG: Verwende ceil() statt round() für konservativere Berechnung
+            return max(1, int(np.ceil(future_minutes / interval_minutes)))
         
         # Berechne rows_to_shift pro Zeile
         rows_to_shift_series = data['phase_id_at_time'].apply(calculate_rows_to_shift)
@@ -282,7 +409,9 @@ def create_time_based_labels(
         if avg_interval_minutes <= 0:
             raise ValueError(f"Ungültiges Zeitintervall: {avg_interval_minutes} Minuten")
         
-        rows_to_shift = int(round(future_minutes / avg_interval_minutes))
+        # ⚠️ WICHTIG: Verwende ceil() statt round() für konservativere Berechnung
+        # ceil() stellt sicher, dass wir mindestens genug Zeilen nehmen
+        rows_to_shift = max(1, int(np.ceil(future_minutes / avg_interval_minutes)))
         
         if rows_to_shift <= 0:
             raise ValueError(f"future_minutes ({future_minutes}) ist kleiner als durchschnittliches Intervall ({avg_interval_minutes:.2f} Minuten)")
@@ -293,19 +422,41 @@ def create_time_based_labels(
         future_values = data[target_variable].shift(-rows_to_shift)
     
     # Berechne prozentuale Änderung
-    percent_change = ((future_values - current_values) / current_values) * 100
+    # ⚠️ WICHTIG: Konvertiere Decimal zu float (Datenbank liefert Decimal, Pandas braucht float)
+    current_values = pd.to_numeric(current_values, errors='coerce')
+    future_values = pd.to_numeric(future_values, errors='coerce')
+    
+    # ⚠️ WICHTIG: Vermeide Division durch Null
+    # Erstelle Mask für gültige Werte (current_values != 0 und nicht NaN)
+    valid_mask = (current_values != 0) & current_values.notna() & future_values.notna()
+    
+    # Berechne Prozent-Änderung nur für gültige Werte
+    percent_change = pd.Series(index=data.index, dtype=float)
+    percent_change[valid_mask] = ((future_values[valid_mask] - current_values[valid_mask]) / current_values[valid_mask]) * 100
+    
+    # Setze ungültige Werte auf NaN (werden später behandelt)
+    percent_change[~valid_mask] = np.nan
     
     # Erstelle Labels basierend auf Richtung
     if direction == "up":
         # Steigt um mindestens min_percent_change?
-        labels = (percent_change >= min_percent_change).astype(int)
+        labels = (percent_change >= min_percent_change).astype(float)  # float für NaN-Handling
     else:  # "down"
         # Fällt um mindestens min_percent_change?
-        labels = (percent_change <= -min_percent_change).astype(int)
+        labels = (percent_change <= -min_percent_change).astype(float)  # float für NaN-Handling
     
-    # Entferne NaN-Werte (am Ende des Datensatzes, wo keine Zukunftswerte existieren)
-    # Setze auf 0 (konservativ: wenn keine Zukunft bekannt, dann "nicht erfüllt")
-    labels = labels.fillna(0)
+    # ⚠️ WICHTIG: Behandle NaN-Werte (am Ende des Datensatzes oder bei Null-Werten)
+    nan_count = labels.isna().sum()
+    if nan_count > 0:
+        logger.warning(f"⚠️ {nan_count} Zeilen ohne gültige Zukunftswerte (werden ausgeschlossen)")
+        # Entferne Zeilen mit NaN aus Labels (und später auch aus Daten)
+        labels = labels.dropna()
+        # Entferne entsprechende Zeilen aus Daten (wichtig für Alignment!)
+        data = data.loc[labels.index]
+        logger.info(f"📊 Nach NaN-Entfernung: {len(labels)} gültige Labels")
+    
+    # Konvertiere zu int (nach NaN-Entfernung)
+    labels = labels.astype(int)
     
     positive = labels.sum()
     negative = len(labels) - positive
@@ -313,22 +464,24 @@ def create_time_based_labels(
     logger.info(f"✅ Zeitbasierte Labels erstellt: {positive} positive, {negative} negative")
     logger.info(f"   Zeitraum: {future_minutes} Minuten, Min-Änderung: {min_percent_change}%, Richtung: {direction}")
     
-    return labels
+    # ⚠️ WICHTIG: Wenn Daten gefiltert wurden (NaN entfernt), gib auch gefilterte Daten zurück
+    # Prüfe ob data und labels noch aligned sind
+    if len(data) != len(labels):
+        logger.warning(f"⚠️ Daten und Labels nicht aligned: {len(data)} Daten, {len(labels)} Labels")
+        # Filtere Daten auf Labels-Index
+        data = data.loc[labels.index]
+        logger.info(f"📊 Daten gefiltert: {len(data)} Zeilen")
+        return labels, data  # Gib beide zurück
+    
+    return labels  # Normale Rückgabe (nur Labels)
 
 def create_pump_detection_features(
     data: pd.DataFrame,
     window_sizes: list = [5, 10, 15]
 ) -> pd.DataFrame:
     """
+    MODERNISIERT: Nutzt neue Metriken aus coin_metrics.
     Erstellt zusätzliche Features für Pump-Detection.
-    
-    Features:
-    - Price Momentum (Preisänderungen über verschiedene Zeitfenster)
-    - Volume Patterns (Volumen-Anomalien, Spikes)
-    - Buy/Sell Pressure (Order-Book-Imbalance)
-    - Whale Activity (Große Transaktionen)
-    - Price Volatility (Preis-Schwankungen)
-    - Market Cap Velocity (Market Cap Änderungsrate)
     
     Args:
         data: DataFrame mit coin_metrics Daten (MUSS nach timestamp sortiert sein!)
@@ -344,76 +497,90 @@ def create_pump_detection_features(
         df = df.sort_index()
         logger.warning("⚠️ Daten wurden nach timestamp sortiert für Feature-Engineering")
     
-    # Prüfe ob benötigte Spalten vorhanden sind
-    required_cols = ['price_close', 'volume_usd', 'order_buy_volume', 'order_sell_volume',
-                     'whale_buy_volume', 'whale_sell_volume', 'price_high', 'price_low',
-                     'market_cap_close', 'order_buy_count', 'order_sell_count']
-    missing_cols = [col for col in required_cols if col not in df.columns]
-    if missing_cols:
-        logger.warning(f"⚠️ Fehlende Spalten für Feature-Engineering: {missing_cols}. Überspringe diese Features.")
+    # ✅ 1. Dev-Tracking Features (KRITISCH!)
+    if 'dev_sold_amount' in df.columns:
+        df['dev_sold_flag'] = (df['dev_sold_amount'] > 0).astype(int)
+        df['dev_sold_cumsum'] = df['dev_sold_amount'].cumsum()
+        for window in window_sizes:
+            df[f'dev_sold_spike_{window}'] = (
+                df['dev_sold_amount'].rolling(window, min_periods=1).sum() > 0
+            ).astype(int)
     
-    # 1. PRICE MOMENTUM (Preisänderungen über verschiedene Zeitfenster)
+    # ✅ 2. Ratio-Features (schon berechnet in coin_metrics!)
+    if 'buy_pressure_ratio' in df.columns:
+        for window in window_sizes:
+            df[f'buy_pressure_ma_{window}'] = (
+                df['buy_pressure_ratio'].rolling(window, min_periods=1).mean()
+            )
+            df[f'buy_pressure_trend_{window}'] = (
+                df['buy_pressure_ratio'] - df[f'buy_pressure_ma_{window}']
+            )
+    
+    # ✅ 3. Whale-Aktivität Features
+    if 'whale_buy_volume_sol' in df.columns and 'whale_sell_volume_sol' in df.columns:
+        df['whale_net_volume'] = (
+            df['whale_buy_volume_sol'] - df['whale_sell_volume_sol']
+        )
+        for window in window_sizes:
+            df[f'whale_activity_{window}'] = (
+                df['whale_buy_volume_sol'].rolling(window, min_periods=1).sum() +
+                df['whale_sell_volume_sol'].rolling(window, min_periods=1).sum()
+            )
+    
+    # ✅ 4. Volatilitäts-Features (nutzt neue volatility_pct Spalte!)
+    if 'volatility_pct' in df.columns:
+        for window in window_sizes:
+            df[f'volatility_ma_{window}'] = (
+                df['volatility_pct'].rolling(window, min_periods=1).mean()
+            )
+            df[f'volatility_spike_{window}'] = (
+                df['volatility_pct'] > 
+                df[f'volatility_ma_{window}'] * 1.5
+            ).astype(int)
+    
+    # ✅ 5. Wash-Trading Detection
+    if 'unique_signer_ratio' in df.columns:
+        for window in window_sizes:
+            df[f'wash_trading_flag_{window}'] = (
+                df['unique_signer_ratio'].rolling(window, min_periods=1).mean() < 0.15
+            ).astype(int)
+    
+    # ✅ 6. Net-Volume Features
+    if 'net_volume_sol' in df.columns:
+        for window in window_sizes:
+            df[f'net_volume_ma_{window}'] = (
+                df['net_volume_sol'].rolling(window, min_periods=1).mean()
+            )
+            df[f'volume_flip_{window}'] = (
+                (df['net_volume_sol'] > 0).astype(int).diff().abs()
+            )
+    
+    # ✅ 7. Price Momentum (nutzt price_close)
     if 'price_close' in df.columns:
         for window in window_sizes:
-            # Prozentuale Preisänderung
             df[f'price_change_{window}'] = df['price_close'].pct_change(periods=window) * 100
-            
-            # Rate of Change (ROC)
-            df[f'price_roc_{window}'] = ((df['price_close'] - df['price_close'].shift(window)) / 
-                                          df['price_close'].shift(window).replace(0, np.nan)) * 100
+            df[f'price_roc_{window}'] = (
+                (df['price_close'] - df['price_close'].shift(window)) / 
+                df['price_close'].shift(window).replace(0, np.nan)
+            ) * 100
     
-    # 2. VOLUME PATTERNS (Volumen-Anomalien)
-    if 'volume_usd' in df.columns:
+    # ✅ 8. Volume Patterns (nutzt volume_sol)
+    if 'volume_sol' in df.columns:
         for window in window_sizes:
-            # Volumen-Änderung vs. Rolling Average
-            rolling_avg = df['volume_usd'].rolling(window=window, min_periods=1).mean()
-            df[f'volume_ratio_{window}'] = df['volume_usd'] / rolling_avg.replace(0, np.nan)
-            
-            # Volumen-Spike (Standard Deviation)
-            rolling_std = df['volume_usd'].rolling(window=window, min_periods=1).std()
-            df[f'volume_spike_{window}'] = (df['volume_usd'] - rolling_avg) / rolling_std.replace(0, np.nan)
+            rolling_avg = df['volume_sol'].rolling(window=window, min_periods=1).mean()
+            df[f'volume_ratio_{window}'] = df['volume_sol'] / rolling_avg.replace(0, np.nan)
+            rolling_std = df['volume_sol'].rolling(window=window, min_periods=1).std()
+            df[f'volume_spike_{window}'] = (
+                (df['volume_sol'] - rolling_avg) / rolling_std.replace(0, np.nan)
+            )
     
-    # 3. BUY/SELL PRESSURE
-    if 'order_buy_volume' in df.columns and 'order_sell_volume' in df.columns:
-        # Buy-Sell Ratio
-        df['buy_sell_ratio'] = df['order_buy_volume'] / (df['order_sell_volume'] + 1e-10)
-        
-        # Buy-Sell Pressure (Normalized)
-        total_volume = df['order_buy_volume'] + df['order_sell_volume']
-        df['buy_pressure'] = df['order_buy_volume'] / (total_volume + 1e-10)
-        df['sell_pressure'] = df['order_sell_volume'] / (total_volume + 1e-10)
-    
-    # 4. WHALE ACTIVITY
-    if 'whale_buy_volume' in df.columns and 'whale_sell_volume' in df.columns:
-        # Whale Buy/Sell Ratio
-        df['whale_buy_sell_ratio'] = df['whale_buy_volume'] / (df['whale_sell_volume'] + 1e-10)
-        
-        # Whale Activity Spike
-        for window in window_sizes:
-            whale_total = df['whale_buy_volume'] + df['whale_sell_volume']
-            rolling_avg = whale_total.rolling(window=window, min_periods=1).mean()
-            df[f'whale_activity_spike_{window}'] = whale_total / (rolling_avg + 1e-10)
-    
-    # 5. PRICE VOLATILITY
-    if 'price_close' in df.columns and 'price_high' in df.columns and 'price_low' in df.columns:
-        for window in window_sizes:
-            # Rolling Standard Deviation
-            df[f'price_volatility_{window}'] = df['price_close'].rolling(window=window, min_periods=1).std()
-            
-            # High-Low Range
-            df[f'price_range_{window}'] = (df['price_high'] - df['price_low']).rolling(window=window, min_periods=1).mean()
-    
-    # 6. MARKET CAP VELOCITY (Rate of Change)
+    # ✅ 9. Market Cap Velocity
     if 'market_cap_close' in df.columns:
         for window in window_sizes:
-            df[f'mcap_velocity_{window}'] = ((df['market_cap_close'] - df['market_cap_close'].shift(window)) / 
-                                              df['market_cap_close'].shift(window).replace(0, np.nan)) * 100
-    
-    # 7. ORDER BOOK IMBALANCE
-    if 'order_buy_count' in df.columns and 'order_sell_count' in df.columns:
-        # Buy-Orders vs. Sell-Orders
-        total_orders = df['order_buy_count'] + df['order_sell_count']
-        df['order_imbalance'] = (df['order_buy_count'] - df['order_sell_count']) / (total_orders + 1e-10)
+            df[f'mcap_velocity_{window}'] = (
+                (df['market_cap_close'] - df['market_cap_close'].shift(window)) / 
+                df['market_cap_close'].shift(window).replace(0, np.nan)
+            ) * 100
     
     # NaN-Werte durch 0 ersetzen (entstehen durch Rolling/Shift)
     df.fillna(0, inplace=True)
@@ -421,7 +588,7 @@ def create_pump_detection_features(
     # Infinite Werte durch 0 ersetzen
     df.replace([np.inf, -np.inf], 0, inplace=True)
     
-    engineered_count = len(get_engineered_feature_names(window_sizes))
+    engineered_count = len([c for c in df.columns if c not in data.columns])
     logger.info(f"✅ {engineered_count} zusätzliche Features erstellt")
     
     return df
@@ -468,6 +635,32 @@ def get_engineered_feature_names(window_sizes: list = [5, 10, 15]) -> list:
     features.append('order_imbalance')
     
     return features
+
+# Kritische Features für Rug-Detection
+CRITICAL_FEATURES = [
+    "dev_sold_amount",  # KRITISCH: Rug-Pull-Indikator
+    "buy_pressure_ratio",  # Relatives Buy/Sell-Verhältnis
+    "unique_signer_ratio",  # Wash-Trading-Erkennung
+    "whale_buy_volume_sol",
+    "whale_sell_volume_sol",
+    "net_volume_sol",
+    "volatility_pct"
+]
+
+def validate_critical_features(features: List[str]) -> Dict[str, bool]:
+    """
+    Prüft ob kritische Features verwendet werden.
+    
+    Args:
+        features: Liste der Feature-Namen
+    
+    Returns:
+        Dict mit {feature_name: bool} - True wenn Feature vorhanden
+    """
+    return {
+        feature: feature in features 
+        for feature in CRITICAL_FEATURES
+    }
 
 
 def check_overlap(
