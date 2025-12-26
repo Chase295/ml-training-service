@@ -4191,36 +4191,985 @@ def tab_metrics():
         st.rerun()
 
 def tab_info():
-    """Info Tab"""
+    """Info Tab - Vollständige Projekt-Informationen"""
     st.title("ℹ️ Projekt-Informationen")
     
+    # Projekt-Übersicht
     st.header("📋 Was macht dieses Projekt?")
     st.markdown("""
-    **ML Training Service** ist ein Machine-Learning-Service für Coin-Bot Training.
+    **ML Training Service** ist ein Machine-Learning-Service für Kryptowährungs-Datenanalyse.
     
     Das System:
-    - ✅ Trainiert ML-Modelle (Random Forest, XGBoost)
-    - ✅ Verwaltet Trainings-Jobs in einer Queue
-    - ✅ Speichert Modelle persistent
+    - ✅ Trainiert ML-Modelle (Random Forest, XGBoost) für Pump-Detection
+    - ✅ Unterstützt zeitbasierte Vorhersagen ("Steigt in 10 Min um 30%")
+    - ✅ Feature-Engineering für bessere Performance
+    - ✅ Verwaltet Trainings-Jobs in einer asynchronen Queue
+    - ✅ Testet Modelle auf neuen Daten
+    - ✅ Vergleicht Modelle miteinander
+    - ✅ Speichert Modelle persistent (Datenbank + .pkl Dateien)
     - ✅ Bietet eine Web-UI für Monitoring und Konfiguration
+    - ✅ Exportiert Prometheus-Metriken für Monitoring
     """)
     
-    st.header("🔧 Technische Details")
-    st.markdown("""
-    **Services:**
-    - **FastAPI Service** (`app/main.py`): API-Endpunkte, Job-Queue, Health-Checks
-    - **Streamlit UI** (`app/streamlit_app.py`): Web-Interface für Monitoring und Konfiguration
+    st.divider()
     
-    **Ports:**
+    # Datenfluss
+    st.header("🔄 Datenfluss")
+    st.code("""
+    PostgreSQL Datenbank
+            ├─ coin_metrics (OHLCV + Metriken)
+            ├─ exchange_rates (SOL-Preis, Marktstimmung)
+            └─ ref_coin_phases (Phasen-Konfiguration)
+            ↓
+    FastAPI Service (app/main.py)
+            ├─ API-Endpunkte (/api/models/create, /api/models/test, etc.)
+            ├─ Job-Queue (ml_jobs Tabelle)
+            └─ Asynchroner Worker (verarbeitet Jobs)
+            ↓
+    Training Engine (app/training/engine.py)
+            ├─ Lädt Daten aus coin_metrics
+            ├─ Feature-Engineering (optional)
+            ├─ Marktstimmung-Enrichment (optional)
+            ├─ Label-Erstellung (zeitbasiert oder klassisch)
+            ├─ Modell-Training (Random Forest / XGBoost)
+            └─ Speichert Modell (.pkl + Metadaten in DB)
+            ↓
+    ml_models Tabelle
+            ├─ Modell-Metadaten
+            ├─ Performance-Metriken
+            ├─ Feature Importance
+            └─ Verweis auf .pkl Datei
+    """, language="text")
+    
+    st.divider()
+    
+    # Was macht das System genau?
+    st.header("🔍 Was macht das System genau?")
+    
+    st.subheader("1️⃣ Modell-Training")
+    st.markdown("""
+    **Prozess:**
+    1. **Job-Erstellung:** Benutzer erstellt Training-Job über Web-UI oder API
+    2. **Job-Queue:** Job wird in `ml_jobs` Tabelle mit Status `PENDING` gespeichert
+    3. **Worker-Verarbeitung:** Asynchroner Worker findet Job und startet Training
+    4. **Daten-Laden:** System lädt Daten aus `coin_metrics` für den gewählten Zeitraum
+    5. **Feature-Engineering:** Optional werden ~40 zusätzliche Features erstellt
+    6. **Marktstimmung:** Optional wird SOL-Preis-Kontext aus `exchange_rates` hinzugefügt
+    7. **Label-Erstellung:** Labels werden erstellt (zeitbasiert oder klassisch)
+    8. **Training:** Modell wird trainiert (Random Forest oder XGBoost)
+    9. **Evaluation:** Modell wird auf Test-Set evaluiert
+    10. **Speicherung:** Modell wird als .pkl Datei gespeichert + Metadaten in DB
+    """)
+    
+    st.subheader("2️⃣ Modell-Testing")
+    st.markdown("""
+    **Prozess:**
+    1. **Test-Job erstellen:** Benutzer wählt Modell und Test-Zeitraum
+    2. **Daten-Laden:** System lädt Test-Daten aus `coin_metrics`
+    3. **Vorhersagen:** Modell macht Vorhersagen auf Test-Daten
+    4. **Evaluation:** Metriken werden berechnet (Accuracy, Precision, Recall, F1, etc.)
+    5. **Speicherung:** Test-Ergebnisse werden in `ml_test_results` gespeichert
+    """)
+    
+    st.subheader("3️⃣ Modell-Vergleich")
+    st.markdown("""
+    **Prozess:**
+    1. **Vergleichs-Job erstellen:** Benutzer wählt 2 Modelle und Test-Zeitraum
+    2. **Parallele Tests:** Beide Modelle werden auf denselben Daten getestet
+    3. **Metriken-Vergleich:** Alle Metriken werden verglichen
+    4. **Speicherung:** Vergleichs-Ergebnisse werden in `ml_comparisons` gespeichert
+    """)
+    
+    st.divider()
+    
+    # Welche Informationen werden verwendet?
+    st.header("📤 Welche Informationen werden verwendet?")
+    
+    st.subheader("1️⃣ Basis-Daten aus coin_metrics")
+    st.markdown("""
+    **OHLCV-Daten:**
+    - `price_open`, `price_high`, `price_low`, `price_close` - Preis-Daten
+    - `volume_sol`, `buy_volume_sol`, `sell_volume_sol` - Volumen-Daten
+    - `market_cap_close` - Market Cap
+    
+    **Rug-Detection-Metriken:**
+    - `dev_sold_amount` - ⚠️ **KRITISCH:** Wie viel SOL hat der Dev verkauft?
+    - `buy_pressure_ratio` - Verhältnis Buy- zu Sell-Volumen
+    - `unique_signer_ratio` - Anteil einzigartiger Trader
+    - `whale_buy_volume_sol`, `whale_sell_volume_sol` - Whale-Aktivität
+    - `num_whale_buys`, `num_whale_sells` - Anzahl Whale-Transaktionen
+    - `net_volume_sol` - Netto-Volumen (Buy - Sell)
+    - `volatility_pct` - Volatilität in Prozent
+    - `avg_trade_size_sol` - Durchschnittliche Trade-Größe
+    
+    **Zeitstempel & Phasen:**
+    - `timestamp` - Zeitstempel der Metrik
+    - `phase_id_at_time` - Phase des Coins zu diesem Zeitpunkt
+    """)
+    
+    st.subheader("2️⃣ Marktstimmung aus exchange_rates")
+    st.markdown("""
+    **Markt-Kontext (optional, wenn `use_market_context=True`):**
+    - `sol_price_usd` - SOL-Preis in USD (der "Wasserstand")
+    - `usd_to_eur_rate` - Währungsumrechnung
+    
+    **Berechnete Features:**
+    - `sol_price_change_pct` - SOL-Preis-Änderung in Prozent
+    - `sol_price_ma_5` - 5-Perioden Moving Average des SOL-Preises
+    - `sol_price_volatility` - Volatilität des SOL-Preises
+    
+    **Zweck:** Unterscheidung zwischen echten Token-Pumps und allgemeinen Marktbewegungen
+    """)
+    
+    st.subheader("3️⃣ Feature-Engineering (optional)")
+    st.markdown("""
+    **Wenn `use_engineered_features=True`:**
+    
+    **Momentum-Features:**
+    - Price-Momentum (5, 10, 15 Perioden)
+    - Volume-Momentum
+    - Rate of Change (ROC)
+    
+    **Volumen-Patterns:**
+    - Volume-MA-Ratio
+    - Buy/Sell-Volumen-Ratio
+    - Net-Volumen-Trend
+    
+    **Whale-Aktivität:**
+    - Whale-Buy-Rate
+    - Whale-Sell-Rate
+    - Whale-Aktivitäts-Trend
+    
+    **Dev-Tracking:**
+    - Dev-Sold-Amount-Trend
+    - Dev-Sold-Rate
+    
+    **Volatilität:**
+    - Rolling-Volatilität
+    - Price-Range-Ratio
+    
+    **Insgesamt:** ~40 zusätzliche Features werden erstellt
+    """)
+    
+    st.divider()
+    
+    # Datenbankschema
+    st.header("🗄️ Datenbankschema")
+    
+    st.subheader("Haupttabelle: `ml_models`")
+    st.markdown("""
+    Speichert alle trainierten Modelle mit Metadaten und Performance-Metriken.
+    
+    **Wichtige Felder:**
+    - `id` - Eindeutige Modell-ID
+    - `name` - Modell-Name (eindeutig)
+    - `model_type` - "random_forest" oder "xgboost"
+    - `status` - "TRAINING", "READY", "FAILED"
+    - `target_variable` - Ziel-Variable (z.B. "price_close")
+    - `future_minutes` - Bei zeitbasierter Vorhersage: Minuten in die Zukunft
+    - `price_change_percent` - Bei zeitbasierter Vorhersage: Mindest-Prozent-Änderung
+    - `target_direction` - Bei zeitbasierter Vorhersage: "up" oder "down"
+    - `features` - JSONB Array mit Feature-Namen
+    - `phases` - JSONB Array mit Coin-Phasen (z.B. [1, 2, 3])
+    - `params` - JSONB Object mit Hyperparametern
+    - `feature_importance` - JSONB Object mit Feature-Importance-Werten
+    - `training_accuracy`, `training_f1`, `training_precision`, `training_recall` - Basis-Metriken
+    - `cv_scores` - JSONB Object mit Cross-Validation-Ergebnissen
+    - `roc_auc`, `mcc`, `fpr`, `fnr` - Erweiterte Metriken
+    - `confusion_matrix` - JSONB Object mit TP, TN, FP, FN
+    - `simulated_profit_pct` - Simulierter Profit in Prozent
+    - `rug_detection_metrics` - JSONB Object mit Rug-Detection-Metriken
+    - `market_context_enabled` - Boolean: Wurde Marktstimmung verwendet?
+    - `model_file_path` - Pfad zur .pkl Datei
+    """)
+    
+    st.subheader("Tabelle: `ml_test_results`")
+    st.markdown("""
+    Speichert Test-Ergebnisse für Modelle auf neuen Daten.
+    
+    **Wichtige Felder:**
+    - `id` - Eindeutige Test-ID
+    - `model_id` - Verweis auf ml_models
+    - `test_start`, `test_end` - Test-Zeitraum
+    - `test_accuracy`, `test_f1`, `test_precision`, `test_recall` - Test-Metriken
+    - `confusion_matrix` - JSONB Object mit TP, TN, FP, FN
+    - `rug_detection_metrics` - JSONB Object mit Rug-Detection-Metriken
+    """)
+    
+    st.subheader("Tabelle: `ml_comparisons`")
+    st.markdown("""
+    Speichert Vergleichs-Ergebnisse zwischen 2 Modellen.
+    
+    **Wichtige Felder:**
+    - `id` - Eindeutige Vergleichs-ID
+    - `model_a_id`, `model_b_id` - Verweise auf ml_models
+    - `test_start`, `test_end` - Test-Zeitraum
+    - `winner_model_id` - ID des besseren Modells
+    - `comparison_metrics` - JSONB Object mit Vergleichs-Metriken
+    """)
+    
+    st.subheader("Tabelle: `ml_jobs`")
+    st.markdown("""
+    Verwaltet alle Jobs (Training, Testing, Comparison) in einer Queue.
+    
+    **Wichtige Felder:**
+    - `id` - Eindeutige Job-ID
+    - `job_type` - "TRAIN", "TEST", "COMPARE"
+    - `status` - "PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"
+    - `progress` - Fortschritt in Prozent (0.0 - 1.0)
+    - `progress_msg` - Fortschritts-Nachricht
+    - `train_model_type` - Modell-Typ (bei TRAIN-Jobs)
+    - `train_features` - JSONB Array mit Features
+    - `train_params` - JSONB Object mit Parametern
+    - `started_at`, `completed_at` - Zeitstempel
+    """)
+    
+    st.subheader("Referenztabelle: `ref_coin_phases`")
+    st.markdown("""
+    Definiert Coin-Phasen für Phasen-basiertes Training.
+    
+    **Phasen:**
+    - **Baby Zone** (ID: 1): 0-10 Min, Intervall: 5s
+    - **Survival Zone** (ID: 2): 10-60 Min, Intervall: 30s
+    - **Mature Zone** (ID: 3): 1-24 Std, Intervall: 60s
+    - **Finished** (ID: 99): Ab 24 Std
+    - **Graduated** (ID: 100): Graduierte Tokens
+    """)
+    
+    st.divider()
+    
+    # API Endpoints
+    st.header("🔌 API Endpoints")
+    
+    st.subheader("Modelle")
+    st.markdown("""
+    | Endpoint | Methode | Beschreibung |
+    |----------|---------|-------------|
+    | `/api/models/create` | POST | Erstellt einen TRAIN-Job (asynchron) |
+    | `/api/models` | GET | Listet alle Modelle (optional: `?status=READY`) |
+    | `/api/models/{model_id}` | GET | Gibt Details eines Modells zurück |
+    | `/api/models/{model_id}` | PATCH | Aktualisiert Modell (z.B. Beschreibung) |
+    | `/api/models/{model_id}` | DELETE | Löscht Modell (soft delete) |
+    """)
+    
+    st.subheader("Testing")
+    st.markdown("""
+    | Endpoint | Methode | Beschreibung |
+    |----------|---------|-------------|
+    | `/api/models/test` | POST | Erstellt einen TEST-Job (asynchron) |
+    | `/api/test-results` | GET | Listet alle Test-Ergebnisse |
+    | `/api/test-results/{test_id}` | GET | Gibt Details eines Tests zurück |
+    """)
+    
+    st.subheader("Vergleich")
+    st.markdown("""
+    | Endpoint | Methode | Beschreibung |
+    |----------|---------|-------------|
+    | `/api/models/compare` | POST | Erstellt einen COMPARE-Job (asynchron) |
+    | `/api/comparisons` | GET | Listet alle Vergleiche |
+    | `/api/comparisons/{comparison_id}` | GET | Gibt Details eines Vergleichs zurück |
+    """)
+    
+    st.subheader("Jobs")
+    st.markdown("""
+    | Endpoint | Methode | Beschreibung |
+    |----------|---------|-------------|
+    | `/api/queue` | GET | Listet alle Jobs (optional: `?status=RUNNING`) |
+    | `/api/queue/{job_id}` | GET | Gibt Details eines Jobs zurück |
+    """)
+    
+    st.subheader("System")
+    st.markdown("""
+    | Endpoint | Methode | Beschreibung |
+    |----------|---------|-------------|
+    | `/api/health` | GET | Health Check (Status, DB-Verbindung, Uptime) |
+    | `/api/metrics` | GET | Prometheus-Metriken (Text-Format) |
+    | `/api/data-availability` | GET | Verfügbare Daten-Zeiträume |
+    | `/api/reload-config` | POST | Lädt Konfiguration neu (ohne Neustart) |
+    """)
+    
+    st.divider()
+    
+    # Technische Details
+    st.header("🔧 Technische Details")
+    
+    st.subheader("Services")
+    st.markdown("""
+    - **FastAPI Service** (`app/main.py`): API-Endpunkte, Job-Queue, Health-Checks, Prometheus-Metriken
+    - **Streamlit UI** (`app/streamlit_app.py`): Web-Interface für Monitoring und Konfiguration
+    - **Job Manager** (`app/queue/job_manager.py`): Asynchroner Worker für Job-Verarbeitung
+    - **Training Engine** (`app/training/engine.py`): Modell-Training-Logik
+    - **Feature Engineering** (`app/training/feature_engineering.py`): Feature-Erstellung
+    - **Model Loader** (`app/training/model_loader.py`): Modell-Laden und Testing
+    """)
+    
+    st.subheader("Ports")
+    st.markdown("""
+    **Externe Ports (Docker Host):**
     - **API**: Port `8012` (FastAPI)
     - **Web UI**: Port `8502` (Streamlit)
+    
+    **Interne Ports (Docker Container):**
+    - **API**: Port `8000` (FastAPI)
+    - **Web UI**: Port `8501` (Streamlit)
     """)
     
-    st.header("📚 Dokumentation")
+    st.subheader("Job-System")
     st.markdown("""
+    **Asynchrones Job-System:**
+    - Jobs werden in `ml_jobs` Tabelle gespeichert
+    - Worker prüft alle 5 Sekunden auf neue `PENDING` Jobs
+    - Max. 2 Jobs parallel (konfigurierbar über `MAX_CONCURRENT_JOBS`)
+    - Training läuft in separatem Thread (blockiert nicht Event Loop)
+    - Progress wird kontinuierlich aktualisiert
+    """)
+    
+    st.subheader("Modell-Typen")
+    st.markdown("""
+    **Random Forest:**
+    - Ensemble-Methode mit mehreren Decision Trees
+    - Robust gegen Overfitting
+    - Gute Performance auf imbalanced Data
+    
+    **XGBoost:**
+    - Gradient Boosting Framework
+    - Sehr gute Performance
+    - Unterstützt Feature Importance
+    """)
+    
+    st.divider()
+    
+    # Zeitbasierte Vorhersagen
+    st.header("⏰ Zeitbasierte Vorhersagen")
+    
+    st.markdown("""
+    **Konzept:**
+    Statt zu fragen "Ist price_close > 50000?", fragt das System:
+    "Steigt price_close in 10 Minuten um mindestens 30%?"
+    
+    **Parameter:**
+    - `future_minutes`: Anzahl Minuten in die Zukunft (z.B. 10)
+    - `min_percent_change`: Mindest-Prozent-Änderung (z.B. 30.0 für 30%)
+    - `direction`: "up" (steigt) oder "down" (fällt)
+    
+    **Label-Erstellung:**
+    1. Für jeden Zeitpunkt wird der aktuelle Wert (`price_close`) genommen
+    2. Der Wert nach `future_minutes` Minuten wird berechnet
+    3. Prozent-Änderung wird berechnet: `((future - current) / current) * 100`
+    4. Label = 1 wenn Änderung >= `min_percent_change` (bei "up") oder <= -`min_percent_change` (bei "down")
+    5. Label = 0 sonst
+    
+    **Vorteile:**
+    - Realistischere Vorhersagen (zeitbasiert)
+    - Besser für Trading-Strategien geeignet
+    - Berücksichtigt Zeit-Komponente
+    """)
+    
+    st.divider()
+    
+    # Feature-Engineering
+    st.header("🎯 Feature-Engineering")
+    
+    st.markdown("""
+    **Aktivierung:** `use_engineered_features=True`
+    
+    **Erstellte Features:**
+    - **Momentum:** Price-Momentum, Volume-Momentum, ROC
+    - **Volumen-Patterns:** Volume-MA-Ratio, Buy/Sell-Ratio, Net-Volumen-Trend
+    - **Whale-Aktivität:** Whale-Buy-Rate, Whale-Sell-Rate, Whale-Aktivitäts-Trend
+    - **Dev-Tracking:** Dev-Sold-Amount-Trend, Dev-Sold-Rate
+    - **Volatilität:** Rolling-Volatilität, Price-Range-Ratio
+    
+    **Fenstergrößen:** Konfigurierbar über `feature_engineering_windows` (z.B. [5, 10, 15])
+    
+    **Insgesamt:** ~40 zusätzliche Features werden erstellt
+    """)
+    
+    st.divider()
+    
+    # Marktstimmung
+    st.header("📈 Marktstimmung (Market Context)")
+    
+    st.markdown("""
+    **Aktivierung:** `use_market_context=True`
+    
+    **Zweck:** Unterscheidung zwischen echten Token-Pumps und allgemeinen Marktbewegungen
+    
+    **Datenquelle:** `exchange_rates` Tabelle (SOL-Preis in USD)
+    
+    **Erstellte Features:**
+    - `sol_price_change_pct` - SOL-Preis-Änderung in Prozent
+    - `sol_price_ma_5` - 5-Perioden Moving Average des SOL-Preises
+    - `sol_price_volatility` - Volatilität des SOL-Preises
+    
+    **Beispiele:**
+    - **"Token steigt, während SOL stabil ist"** → Bullish (Echter Pump) ✅
+    - **"Token steigt, weil SOL um 5% steigt"** → Neutral (Marktbewegung) ⚠️
+    - **"Token ist stabil, während SOL crasht"** → Stärke (Relative Strength) 💪
+    """)
+    
+    st.divider()
+    
+    # Rug-Detection-Metriken
+    st.header("🚨 Rug-Detection-Metriken")
+    
+    st.markdown("""
+    **Spezielle Metriken für Rug-Pull-Erkennung:**
+    
+    - **Dev-Sold Detection Rate:** Wie oft wurde `dev_sold_amount > 0` korrekt erkannt?
+    - **Wash-Trading Detection Rate:** Wie oft wurde Wash-Trading erkannt?
+    - **Weighted Cost:** Kosten-Funktion (False Negatives 10x schwerer als False Positives)
+    - **Precision at K:** Precision bei Top-K Vorhersagen
+    
+    **Kritische Features:**
+    - `dev_sold_amount` - ⚠️ **KRITISCH:** Wie viel SOL hat der Dev verkauft?
+    - `buy_pressure_ratio` - Verhältnis Buy- zu Sell-Volumen
+    - `unique_signer_ratio` - Anteil einzigartiger Trader
+    """)
+    
+    st.divider()
+    
+    # Dokumentation
+    st.header("📚 Dokumentation")
+    
+    st.markdown("""
+    **Wichtige Dokumentationen:**
     - **[README.md](../README.md)** - Projekt-Übersicht
-    - **[DEPLOYMENT.md](../docs/DEPLOYMENT.md)** - Deployment-Anleitung
-    - **[COOLIFY_DEPLOYMENT.md](../docs/COOLIFY_DEPLOYMENT.md)** - Coolify Deployment
+    - **[KOMPLETTE_KI_MODELL_ANLEITUNG.md](../docs/KOMPLETTE_KI_MODELL_ANLEITUNG.md)** - Vollständige Anleitung zur Modell-Erstellung
+    - **[IMPLEMENTIERUNGS_ANLEITUNG_METRIKEN.md](../docs/IMPLEMENTIERUNGS_ANLEITUNG_METRIKEN.md)** - Metriken-Integration
+    - **[LABEL_VALIDIERUNGSBERICHT.md](../docs/LABEL_VALIDIERUNGSBERICHT.md)** - Label-Validierung
+    - **[PRODUCTION_READINESS_BERICHT.md](../docs/PRODUCTION_READINESS_BERICHT.md)** - Production-Readiness
+    - **[XGBOOST_MODEL_ERSTELLUNG.md](../docs/XGBOOST_MODEL_ERSTELLUNG.md)** - XGBoost-Optimierung
+    - **[COOLIFY_DEPLOYMENT_CHECKLIST.md](../docs/COOLIFY_DEPLOYMENT_CHECKLIST.md)** - Coolify Deployment
+    - **[complete_schema.sql](../sql/complete_schema.sql)** - Vollständiges Datenbank-Schema
+    """)
+    
+    st.divider()
+    
+    # Label-Erstellung - DETAILLIERT
+    st.header("🏷️ Label-Erstellung - Schritt für Schritt")
+    
+    st.subheader("1️⃣ Klassische Labels (Schwellwert-basiert)")
+    st.markdown("""
+    **Wann verwendet:** Wenn `use_time_based_prediction = False`
+    
+    **Prozess:**
+    1. Für jede Zeile wird geprüft: `target_variable operator target_value`
+    2. Beispiel: `price_close > 50000`
+    3. Label = 1 wenn Bedingung erfüllt, 0 wenn nicht erfüllt
+    
+    **Operatoren:**
+    - `>` - Größer als
+    - `<` - Kleiner als
+    - `>=` - Größer oder gleich
+    - `<=` - Kleiner oder gleich
+    - `=` - Gleich
+    
+    **Beispiel:**
+    ```
+    Zeile 1: price_close = 45000 → 45000 > 50000? → Nein → Label = 0
+    Zeile 2: price_close = 55000 → 55000 > 50000? → Ja → Label = 1
+    Zeile 3: price_close = 60000 → 60000 > 50000? → Ja → Label = 1
+    ```
+    """)
+    
+    st.subheader("2️⃣ Zeitbasierte Labels (Zukunfts-Vorhersage)")
+    st.markdown("""
+    **Wann verwendet:** Wenn `use_time_based_prediction = True`
+    
+    **Konzept:** Statt zu fragen "Ist price_close > 50000?", fragt das System:
+    "Steigt price_close in 10 Minuten um mindestens 30%?"
+    
+    **Schritt-für-Schritt Prozess:**
+    
+    **Schritt 1: Aktueller Wert**
+    ```python
+    current_value = data.loc[idx, "price_close"]  # z.B. 100.0
+    ```
+    
+    **Schritt 2: Zukünftiger Wert berechnen**
+    - System berechnet, wie viele Zeilen in die Zukunft geschaut werden muss
+    - Beispiel: Phase 1 hat `interval_seconds=5` → 10 Minuten = 120 Zeilen
+    - Zukünftiger Wert: `future_value = data.loc[idx + 120, "price_close"]`  # z.B. 130.0
+    
+    **Schritt 3: Prozent-Änderung berechnen**
+    ```python
+    percent_change = ((future_value - current_value) / current_value) * 100
+    # Beispiel: ((130.0 - 100.0) / 100.0) * 100 = 30.0%
+    ```
+    
+    **Schritt 4: Label erstellen**
+    ```python
+    if direction == "up":
+        label = 1 if percent_change >= min_percent_change else 0
+        # Beispiel: 30.0% >= 30.0%? → Ja → Label = 1
+    else:  # "down"
+        label = 1 if percent_change <= -min_percent_change else 0
+        # Beispiel: -30.0% <= -30.0%? → Ja → Label = 1
+    ```
+    
+    **Wichtig:**
+    - ⚠️ **Data Leakage Prevention:** `target_variable` wird aus Features entfernt!
+    - ⚠️ **NaN-Handling:** Zeilen ohne Zukunftswerte werden entfernt (am Ende des Datensatzes)
+    - ⚠️ **Division durch Null:** Wird verhindert durch `valid_mask`
+    - ⚠️ **Phase-Intervalle:** System verwendet exakte Intervalle pro Phase (genauer als Durchschnitt)
+    """)
+    
+    st.subheader("3️⃣ Label-Validierung")
+    st.markdown("""
+    **Automatische Prüfungen:**
+    - ✅ Mindestens 1 positives Label (sonst: Fehler)
+    - ✅ Mindestens 1 negatives Label (sonst: Fehler)
+    - ⚠️ Warnung wenn Labels sehr unausgewogen (< 5% oder > 95% positiv)
+    
+    **Empfehlung:** Labels sollten zwischen 20% und 80% positiv sein für beste Performance
+    """)
+    
+    st.divider()
+    
+    # Was beim KI-Modell-Erstellen beachten?
+    st.header("⚠️ Was beim KI-Modell-Erstellen beachten?")
+    
+    st.subheader("1️⃣ Datenqualität")
+    st.markdown("""
+    **Wichtig:**
+    - ✅ **Zeitraum wählen:** Mindestens 4-6 Stunden Daten für aussagekräftige Modelle
+    - ✅ **Phasen berücksichtigen:** Verschiedene Phasen haben unterschiedliche Verhaltensmuster
+    - ✅ **Datenverfügbarkeit prüfen:** Prüfe `/api/data-availability` vor dem Training
+    - ⚠️ **Max. 500.000 Zeilen:** System begrenzt automatisch (RAM-Management)
+    
+    **Empfehlung:**
+    - Training: Letzte 4-6 Stunden der verfügbaren Daten
+    - Test: Letzte 10-30 Minuten (separat vom Training)
+    """)
+    
+    st.subheader("2️⃣ Feature-Auswahl")
+    st.markdown("""
+    **Kritische Features (empfohlen):**
+    - ✅ `dev_sold_amount` - **KRITISCH** für Rug-Detection
+    - ✅ `buy_pressure_ratio` - Buy/Sell-Verhältnis
+    - ✅ `unique_signer_ratio` - Anteil einzigartiger Trader
+    - ✅ `price_close`, `volume_sol` - Basis-Daten
+    
+    **Optional (Feature-Engineering):**
+    - ✅ `use_engineered_features=True` - Erstellt ~40 zusätzliche Features
+    - ✅ `feature_engineering_windows=[5, 10, 15]` - Fenstergrößen für Features
+    
+    **Feature-Ausschluss:**
+    - ⚠️ `exclude_features` - Liste von Features die ausgeschlossen werden sollen
+    - Beispiel: `exclude_features=["dev_sold_amount"]` - Wenn Dev-Tracking nicht gewünscht
+    """)
+    
+    st.subheader("3️⃣ Zeitbasierte Vorhersage")
+    st.markdown("""
+    **Parameter:**
+    - `future_minutes`: 5-30 Minuten empfohlen (zu kurz = zu viele False Positives, zu lang = zu wenige Positives)
+    - `min_percent_change`: 5-30% empfohlen (zu niedrig = zu viele False Positives, zu hoch = zu wenige Positives)
+    - `direction`: "up" (steigt) oder "down" (fällt)
+    
+    **Empfehlung:**
+    - **Konservativ:** 10 Minuten, 5% Änderung
+    - **Mittel:** 10 Minuten, 10% Änderung
+    - **Aggressiv:** 5 Minuten, 20% Änderung
+    
+    **Wichtig:**
+    - ⚠️ Bei zeitbasierter Vorhersage wird `target_variable` automatisch aus Features entfernt (Data Leakage Prevention)
+    - ⚠️ Am Ende des Datensatzes werden Zeilen ohne Zukunftswerte entfernt
+    """)
+    
+    st.subheader("4️⃣ Hyperparameter")
+    st.markdown("""
+    **Random Forest:**
+    - `n_estimators`: 100-300 (mehr = besser, aber langsamer)
+    - `max_depth`: 10-20 (zu tief = Overfitting)
+    - `min_samples_split`: 5-10 (zu niedrig = Overfitting)
+    
+    **XGBoost:**
+    - `n_estimators`: 200-500 (mehr = besser, aber langsamer)
+    - `max_depth`: 6-10 (zu tief = Overfitting)
+    - `learning_rate`: 0.05-0.1 (niedriger = besser, aber langsamer)
+    
+    **Empfehlung:** Verwende Standard-Parameter zuerst, dann optimiere basierend auf Ergebnissen
+    """)
+    
+    st.subheader("5️⃣ Imbalanced Data Handling")
+    st.markdown("""
+    **Problem:** Wenn Labels sehr unausgewogen sind (z.B. 95% negativ, 5% positiv)
+    
+    **Lösung:** `use_smote=True`
+    - SMOTE (Synthetic Minority Oversampling Technique)
+    - Erstellt synthetische positive Beispiele
+    - Verbessert Performance bei unausgewogenen Daten
+    
+    **Wann verwenden:** Wenn Labels < 20% oder > 80% positiv sind
+    """)
+    
+    st.subheader("6️⃣ Cross-Validation")
+    st.markdown("""
+    **Aktivierung:** `use_timeseries_split=True` (Standard: aktiviert)
+    
+    **Was passiert:**
+    - TimeSeriesSplit respektiert zeitliche Reihenfolge (verhindert Data Leakage)
+    - Anzahl Splits: `cv_splits=5` (Standard)
+    - Berechnet Train- und Test-Accuracy für jeden Split
+    - Overfitting-Gap wird berechnet (Differenz zwischen Train- und Test-Accuracy)
+    
+    **Wichtig:**
+    - ⚠️ TimeSeriesSplit ist wichtig für Zeitreihen-Daten!
+    - ⚠️ Normale K-Fold würde Data Leakage verursachen (Zukunft in Training)
+    """)
+    
+    st.subheader("7️⃣ Marktstimmung")
+    st.markdown("""
+    **Aktivierung:** `use_market_context=True`
+    
+    **Vorteile:**
+    - Unterscheidet echte Token-Pumps von Marktbewegungen
+    - Erstellt Features: `sol_price_change_pct`, `sol_price_ma_5`, `sol_price_volatility`
+    
+    **Wann verwenden:** Immer empfohlen (verbessert Modell-Performance)
+    
+    **Voraussetzung:** `exchange_rates` Tabelle muss Daten enthalten
+    """)
+    
+    st.divider()
+    
+    # Kompletter Workflow - Schritt für Schritt
+    st.header("🔄 Kompletter Workflow - Schritt für Schritt")
+    
+    st.subheader("Phase 1: Job-Erstellung")
+    st.markdown("""
+    **1.1 Web-UI oder API Request**
+    - Benutzer erstellt Training-Job über Web-UI oder API
+    - Parameter werden eingegeben (Name, Modell-Typ, Features, Zeitraum, etc.)
+    
+    **1.2 Validierung**
+    - Request wird validiert (Pydantic Schema)
+    - Zeitbasierte Parameter werden in `train_params._time_based` gespeichert
+    - Feature-Engineering Parameter werden in `train_params` gespeichert
+    
+    **1.3 Job in Datenbank**
+    - Job wird in `ml_jobs` Tabelle erstellt mit `status='PENDING'`
+    - Modell-Name wird in `progress_msg` temporär gespeichert
+    - Response mit `job_id` wird zurückgegeben
+    """)
+    
+    st.subheader("Phase 2: Worker-Verarbeitung")
+    st.markdown("""
+    **2.1 Job gefunden**
+    - Worker prüft alle 5 Sekunden auf `PENDING` Jobs
+    - Wenn Job gefunden UND weniger als 2 Jobs aktiv:
+      - Status wird auf `RUNNING` gesetzt
+      - Job wird asynchron verarbeitet
+    
+    **2.2 Parameter extrahieren**
+    - Modell-Name aus `progress_msg`
+    - Features, Phasen, Zeitraum aus Job-Daten
+    - Hyperparameter aus `train_params`
+    - Zeitbasierte Parameter aus `train_params._time_based`
+    """)
+    
+    st.subheader("Phase 3: Daten-Laden")
+    st.markdown("""
+    **3.1 SQL Query**
+    ```sql
+    SELECT timestamp, price_open, price_high, price_low, price_close,
+           volume_sol, buy_volume_sol, sell_volume_sol, dev_sold_amount,
+           buy_pressure_ratio, unique_signer_ratio, ...
+    FROM coin_metrics
+    WHERE timestamp >= $1 AND timestamp <= $2
+      AND phase_id_at_time = ANY($3)  -- Falls Phasen gefiltert
+    ORDER BY timestamp
+    LIMIT 500000
+    ```
+    
+    **3.2 Daten-Verarbeitung**
+    - Daten werden nach `timestamp` sortiert (wichtig für zeitbasierte Labels!)
+    - `timestamp` wird als Index gesetzt
+    - Duplikate werden entfernt
+    - Decimal-Typen werden zu float konvertiert (PostgreSQL → Pandas)
+    - Max. 500.000 Zeilen (RAM-Management)
+    
+    **3.3 Marktstimmung (optional)**
+    - Wenn `use_market_context=True`:
+      - SOL-Preis wird aus `exchange_rates` geladen
+      - Features werden erstellt: `sol_price_change_pct`, `sol_price_ma_5`, `sol_price_volatility`
+    """)
+    
+    st.subheader("Phase 4: Feature-Vorbereitung")
+    st.markdown("""
+    **4.1 Data Leakage Prevention**
+    ```python
+    # Bei zeitbasierter Vorhersage:
+    features_for_loading = ["price_open", "volume_sol", "price_close"]  # Enthält target_var
+    features_for_training = ["price_open", "volume_sol"]  # target_var ENTFERNT!
+    ```
+    
+    **4.2 Feature-Engineering (optional)**
+    - Wenn `use_engineered_features=True`:
+      - ~40 zusätzliche Features werden erstellt
+      - Momentum, Volumen-Patterns, Whale-Aktivität, etc.
+      - Features werden zu `features_for_training` hinzugefügt
+    """)
+    
+    st.subheader("Phase 5: Label-Erstellung")
+    st.markdown("""
+    **5.1 Zeitbasierte Labels (wenn aktiviert)**
+    ```python
+    # Für jede Zeile:
+    current_value = data.loc[idx, "price_close"]  # z.B. 100.0
+    future_value = data.loc[idx + rows_to_shift, "price_close"]  # z.B. 130.0
+    percent_change = ((130.0 - 100.0) / 100.0) * 100  # = 30.0%
+    
+    if direction == "up":
+        label = 1 if percent_change >= min_percent_change else 0
+    ```
+    
+    **5.2 Klassische Labels (wenn zeitbasierte Vorhersage deaktiviert)**
+    ```python
+    # Für jede Zeile:
+    value = data.loc[idx, "price_close"]  # z.B. 55000
+    label = 1 if value > target_value else 0  # z.B. 55000 > 50000? → Ja → 1
+    ```
+    
+    **5.3 Label-Validierung**
+    - Prüft ob mindestens 1 positives und 1 negatives Label vorhanden
+    - Warnung wenn Labels sehr unausgewogen (< 5% oder > 95% positiv)
+    """)
+    
+    st.subheader("Phase 6: Training")
+    st.markdown("""
+    **6.1 Train/Test Split**
+    - Standard: 80% Training, 20% Test
+    - TimeSeriesSplit respektiert zeitliche Reihenfolge
+    
+    **6.2 SMOTE (optional)**
+    - Wenn `use_smote=True` und Labels unausgewogen:
+      - Synthetische positive Beispiele werden erstellt
+      - Verbessert Performance bei unausgewogenen Daten
+    
+    **6.3 Modell-Training**
+    - Random Forest oder XGBoost wird trainiert
+    - Training läuft in separatem Thread (blockiert nicht Event Loop)
+    - Progress wird kontinuierlich aktualisiert (20% → 60% → 80% → 100%)
+    
+    **6.4 Cross-Validation (optional)**
+    - Wenn `use_timeseries_split=True`:
+      - TimeSeriesSplit mit 5 Splits
+      - Train- und Test-Accuracy für jeden Split
+      - Overfitting-Gap wird berechnet
+    """)
+    
+    st.subheader("Phase 7: Evaluation")
+    st.markdown("""
+    **7.1 Basis-Metriken**
+    - Accuracy, Precision, Recall, F1-Score
+    - Confusion Matrix (TP, TN, FP, FN)
+    
+    **7.2 Erweiterte Metriken**
+    - ROC-AUC (wenn Modell Wahrscheinlichkeiten unterstützt)
+    - MCC (Matthews Correlation Coefficient)
+    - FPR (False Positive Rate)
+    - FNR (False Negative Rate)
+    
+    **7.3 Rug-Detection-Metriken**
+    - Dev-Sold Detection Rate
+    - Wash-Trading Detection Rate
+    - Weighted Cost (FN 10x schwerer als FP)
+    - Precision at K
+    
+    **7.4 Feature Importance**
+    - Wichtigste Features werden berechnet
+    - Gespeichert als JSONB in `ml_models.feature_importance`
+    """)
+    
+    st.subheader("Phase 8: Speicherung")
+    st.markdown("""
+    **8.1 Modell-Datei**
+    - Modell wird als .pkl Datei gespeichert
+    - Pfad: `/app/models/{model_id}_{model_name}.pkl`
+    
+    **8.2 Datenbank-Metadaten**
+    - Alle Metriken werden in `ml_models` Tabelle gespeichert
+    - Status wird auf `READY` gesetzt
+    - Job-Status wird auf `COMPLETED` gesetzt
+    """)
+    
+    st.divider()
+    
+    # Best Practices
+    st.header("💡 Best Practices")
+    
+    st.subheader("1️⃣ Modell-Erstellung")
+    st.markdown("""
+    - ✅ **Zeitraum:** Mindestens 4-6 Stunden Trainingsdaten
+    - ✅ **Features:** Immer `dev_sold_amount` inkludieren (kritisch für Rug-Detection)
+    - ✅ **Marktstimmung:** Immer aktivieren (`use_market_context=True`)
+    - ✅ **Feature-Engineering:** Aktivieren für bessere Performance
+    - ✅ **Cross-Validation:** Immer aktivieren (verhindert Overfitting)
+    - ✅ **SMOTE:** Aktivieren wenn Labels unausgewogen (< 20% oder > 80% positiv)
+    """)
+    
+    st.subheader("2️⃣ Zeitbasierte Vorhersage")
+    st.markdown("""
+    - ✅ **future_minutes:** 5-30 Minuten (10 Minuten empfohlen)
+    - ✅ **min_percent_change:** 5-30% (10% empfohlen)
+    - ✅ **direction:** "up" für Pump-Detection, "down" für Crash-Detection
+    - ⚠️ **Zu niedrige Werte:** Viele False Positives
+    - ⚠️ **Zu hohe Werte:** Zu wenige positive Labels
+    """)
+    
+    st.subheader("3️⃣ Hyperparameter-Tuning")
+    st.markdown("""
+    - ✅ **Starte mit Standard-Parametern:** System hat gute Defaults
+    - ✅ **Iteriere basierend auf Ergebnissen:** Teste verschiedene Kombinationen
+    - ✅ **Vergleiche Modelle:** Verwende Vergleichs-Funktion um beste Parameter zu finden
+    - ⚠️ **Overfitting vermeiden:** Zu hohe `max_depth` oder zu niedrige `min_samples_split`
+    """)
+    
+    st.subheader("4️⃣ Testing")
+    st.markdown("""
+    - ✅ **Separater Zeitraum:** Teste auf Daten die NICHT im Training waren
+    - ✅ **Realistische Zeiträume:** 10-30 Minuten Test-Daten
+    - ✅ **Vergleiche Modelle:** Teste mehrere Modelle auf denselben Daten
+    - ⚠️ **Nicht auf Trainingsdaten testen:** Würde unrealistische Metriken zeigen
+    """)
+    
+    st.divider()
+    
+    # Häufige Fehler und Lösungen
+    st.header("🐛 Häufige Fehler und Lösungen")
+    
+    st.subheader("1️⃣ 'Keine positiven Labels gefunden'")
+    st.markdown("""
+    **Problem:** Alle Labels sind 0 (Bedingung wird nie erfüllt)
+    
+    **Ursachen:**
+    - `min_percent_change` zu hoch (z.B. 50% bei zeitbasierter Vorhersage)
+    - `target_value` zu hoch (z.B. `price_close > 1000000`)
+    - Zeitraum zu kurz (zu wenige Daten)
+    
+    **Lösung:**
+    - Reduziere `min_percent_change` oder `target_value`
+    - Wähle längeren Zeitraum
+    - Prüfe Datenverfügbarkeit vor Training
+    """)
+    
+    st.subheader("2️⃣ 'Keine negativen Labels gefunden'")
+    st.markdown("""
+    **Problem:** Alle Labels sind 1 (Bedingung wird immer erfüllt)
+    
+    **Ursachen:**
+    - `min_percent_change` zu niedrig (z.B. 0.1%)
+    - `target_value` zu niedrig (z.B. `price_close > 0`)
+    
+    **Lösung:**
+    - Erhöhe `min_percent_change` oder `target_value`
+    - Prüfe Label-Verteilung vor Training
+    """)
+    
+    st.subheader("3️⃣ 'Nicht genug Daten'")
+    st.markdown("""
+    **Problem:** Zu wenige Zeilen für Training
+    
+    **Ursachen:**
+    - Zeitraum zu kurz
+    - Phasen-Filter zu restriktiv
+    - Datenbank enthält keine Daten für Zeitraum
+    
+    **Lösung:**
+    - Wähle längeren Zeitraum
+    - Entferne Phasen-Filter oder wähle mehr Phasen
+    - Prüfe `/api/data-availability` für verfügbare Daten
+    """)
+    
+    st.subheader("4️⃣ 'Modell-Performance schlecht'")
+    st.markdown("""
+    **Problem:** Accuracy < 60% oder viele False Positives
+    
+    **Ursachen:**
+    - Zu wenige Features
+    - Feature-Engineering nicht aktiviert
+    - Labels zu unausgewogen
+    - Hyperparameter nicht optimal
+    
+    **Lösung:**
+    - Aktiviere Feature-Engineering
+    - Aktiviere Marktstimmung
+    - Aktiviere SMOTE wenn Labels unausgewogen
+    - Teste verschiedene Hyperparameter
+    - Vergleiche mehrere Modelle
+    """)
+    
+    st.subheader("5️⃣ 'Training dauert zu lange'")
+    st.markdown("""
+    **Problem:** Training dauert > 30 Minuten
+    
+    **Ursachen:**
+    - Zu viele Daten (> 500.000 Zeilen)
+    - Zu viele Features (> 50)
+    - `n_estimators` zu hoch
+    
+    **Lösung:**
+    - Reduziere Zeitraum (weniger Daten)
+    - Reduziere Feature-Anzahl
+    - Reduziere `n_estimators`
+    - System begrenzt automatisch auf 500.000 Zeilen
+    """)
+    
+    st.divider()
+    
+    # Performance-Tipps
+    st.header("⚡ Performance-Tipps")
+    
+    st.markdown("""
+    **1. Datenmenge:**
+    - ✅ 4-6 Stunden Trainingsdaten sind ausreichend
+    - ⚠️ Mehr Daten = längeres Training, aber nicht unbedingt bessere Performance
+    
+    **2. Feature-Anzahl:**
+    - ✅ 10-20 Basis-Features + Feature-Engineering (~40 Features) = optimal
+    - ⚠️ Zu viele Features (> 100) = Overfitting-Risiko
+    
+    **3. Hyperparameter:**
+    - ✅ Random Forest: `n_estimators=200`, `max_depth=10`
+    - ✅ XGBoost: `n_estimators=300`, `max_depth=8`, `learning_rate=0.1`
+    
+    **4. Parallelisierung:**
+    - ✅ System verarbeitet max. 2 Jobs parallel
+    - ✅ Training läuft in separatem Thread (blockiert nicht Event Loop)
+    
+    **5. Caching:**
+    - ✅ Modelle werden persistent gespeichert (DB + .pkl)
+    - ✅ Kein Re-Training nötig für Tests
+    """)
+    
+    st.divider()
+    
+    # Zusammenfassung
+    st.header("📊 Zusammenfassung")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Modell-Typen", "2", "Random Forest, XGBoost")
+    
+    with col2:
+        st.metric("Vorhersage-Typen", "2", "Klassisch, Zeitbasiert")
+    
+    with col3:
+        st.metric("Job-Typen", "3", "TRAIN, TEST, COMPARE")
+    
+    st.info("""
+    **Wichtig:** 
+    - Alle Jobs werden asynchron verarbeitet (nicht sofort)
+    - Modell-Training kann mehrere Minuten dauern
+    - Progress wird kontinuierlich aktualisiert
+    - Modelle werden persistent gespeichert (DB + .pkl Dateien)
+    - Prometheus-Metriken werden für Monitoring exportiert
+    - Labels werden automatisch validiert (keine Data Leakage)
+    - Feature-Engineering erstellt ~40 zusätzliche Features
+    - Marktstimmung unterscheidet echte Pumps von Marktbewegungen
     """)
 
 # ============================================================
