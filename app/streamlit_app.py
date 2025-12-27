@@ -3480,12 +3480,12 @@ def page_details():
     st.subheader("📝 Basis-Informationen")
     info_col1, info_col2, info_col3, info_col4 = st.columns(4)
     with info_col1:
-        st.markdown("**Modell-Typ**")
+        st.write("**Modell-Typ**")
         model_type = model.get('model_type', 'N/A')
         type_emoji = "🌲" if model_type == "random_forest" else "🚀" if model_type == "xgboost" else "🤖"
         st.write(f"{type_emoji} {model_type}")
     with info_col2:
-        st.markdown("**Status**")
+        st.write("**Status**")
         status = model.get('status', 'N/A')
         if status == "READY":
             st.success("✅ READY")
@@ -3494,10 +3494,10 @@ def page_details():
         else:
             st.error(f"❌ {status}")
     with info_col3:
-        st.markdown("**Modell-ID**")
+        st.write("**Modell-ID**")
         st.write(f"#{model_id}")
     with info_col4:
-        st.markdown("**Erstellt**")
+        st.write("**Erstellt**")
         created = model.get('created_at', '')
         if created:
             try:
@@ -3514,7 +3514,7 @@ def page_details():
     # Beschreibung
     description = model.get('description')
     if description:
-        st.markdown("**Beschreibung**")
+        st.write("**Beschreibung**")
         st.info(description)
     
     st.divider()
@@ -3536,25 +3536,25 @@ def page_details():
         if accuracy:
             st.metric("Accuracy", f"{accuracy:.4f}", help="Anteil korrekter Vorhersagen (0-1, höher = besser)")
         else:
-            st.caption("Accuracy: N/A")
+            st.write("Accuracy: N/A")
     with col2:
         f1 = model.get('training_f1')
         if f1:
             st.metric("F1-Score", f"{f1:.4f}", help="Harmonisches Mittel aus Precision und Recall (0-1, höher = besser)")
         else:
-            st.caption("F1-Score: N/A")
+            st.write("F1-Score: N/A")
     with col3:
         precision = model.get('training_precision')
         if precision:
             st.metric("Precision", f"{precision:.4f}", help="Von allen 'Positiv'-Vorhersagen, wie viele waren wirklich positiv? (0-1, höher = weniger False Positives)")
         else:
-            st.caption("Precision: N/A")
+            st.write("Precision: N/A")
     with col4:
         recall = model.get('training_recall')
         if recall:
             st.metric("Recall", f"{recall:.4f}", help="Von allen echten Positiven, wie viele hat das Modell gefunden? (0-1, höher = weniger False Negatives)")
         else:
-            st.caption("Recall: N/A")
+            st.write("Recall: N/A")
     
     st.divider()
     
@@ -3576,28 +3576,28 @@ def page_details():
             quality = "Sehr gut" if roc_auc > 0.9 else "Gut" if roc_auc > 0.7 else "Mäßig" if roc_auc > 0.5 else "Schlecht"
             st.metric("ROC-AUC", f"{roc_auc:.4f}", help=f"Area Under ROC Curve (0-1). {quality} (>0.7 = gut, >0.9 = sehr gut)")
         else:
-            st.caption("ROC-AUC: N/A")
+            st.write("ROC-AUC: N/A")
     with col2:
         mcc = model.get('mcc')
         if mcc:
             quality = "Sehr gut" if mcc > 0.5 else "Gut" if mcc > 0.3 else "Mäßig" if mcc > 0 else "Schlecht"
             st.metric("MCC", f"{mcc:.4f}", help=f"Matthews Correlation Coefficient (-1 bis +1). {quality} (0 = zufällig, +1 = perfekt)")
         else:
-            st.caption("MCC: N/A")
+            st.write("MCC: N/A")
     with col3:
         fpr = model.get('fpr')
         if fpr is not None:
             quality = "Gut" if fpr < 0.1 else "Mäßig" if fpr < 0.3 else "Schlecht"
             st.metric("False Positive Rate", f"{fpr:.4f}", help=f"Wie viele Negatives wurden fälschlicherweise als Positiv klassifiziert? {quality} (niedriger = besser)")
         else:
-            st.caption("FPR: N/A")
+            st.write("FPR: N/A")
     with col4:
         fnr = model.get('fnr')
         if fnr is not None:
             quality = "Gut" if fnr < 0.1 else "Mäßig" if fnr < 0.3 else "Schlecht"
             st.metric("False Negative Rate", f"{fnr:.4f}", help=f"Wie viele Positives wurden fälschlicherweise als Negativ klassifiziert? {quality} (niedriger = besser)")
         else:
-            st.caption("FNR: N/A")
+            st.write("FNR: N/A")
     
     st.divider()
     
@@ -3622,7 +3622,7 @@ def page_details():
             profit_quality = "Sehr profitabel" if simulated_profit > 5 else "Profitabel" if simulated_profit > 0 else "Verlust"
             st.metric("💰 Simulierter Profit", f"{simulated_profit:.2f}%", help=f"Simulierter Profit basierend auf TP/FP. {profit_quality}")
         with col2:
-            st.caption("**Berechnung:** 1% Gewinn pro TP, -0.5% Verlust pro FP")
+            st.write("**Berechnung:** 1% Gewinn pro TP, -0.5% Verlust pro FP")
     
     st.divider()
     
@@ -3660,7 +3660,7 @@ def page_details():
             st.metric("False Negative (FN)", fn, help="❌ Fälschlicherweise als 'Negativ' erkannt (z.B. kein Pump erkannt, war aber Pump) → Verpasste Chancen!")
         
         # Visualisierung als Tabelle
-        st.markdown("**Confusion Matrix Tabelle:**")
+        st.write("**Confusion Matrix Tabelle:**")
         cm_data = {
             'Tatsächlich': ['Negativ', 'Positiv'],
             'Vorhergesagt: Negativ': [tn, fn],
@@ -3701,7 +3701,7 @@ def page_details():
             df_fi = df_fi.sort_values('Importance', ascending=False)
             
             # Zeige Top 10 Features
-            st.markdown("**Top 10 wichtigste Features:**")
+            st.write("**Top 10 wichtigste Features:**")
             st.dataframe(df_fi.head(10), use_container_width=True, hide_index=True)
             
             # Visualisierung
@@ -3717,7 +3717,7 @@ def page_details():
     config_col1, config_col2 = st.columns(2)
     
     with config_col1:
-        st.markdown("**Training-Zeitraum:**")
+        st.write("**Training-Zeitraum:**")
         train_start = model.get('train_start')
         train_end = model.get('train_end')
         if train_start and train_end:
@@ -3743,7 +3743,7 @@ def page_details():
         else:
             st.write("Zeitraum nicht verfügbar")
         
-        st.markdown("**Features:**")
+        st.write("**Features:**")
         features_list = model.get('features', [])
         if features_list:
             st.write(f"{len(features_list)} Features ausgewählt")
@@ -3753,7 +3753,7 @@ def page_details():
         else:
             st.write("Keine Features verfügbar")
         
-        st.markdown("**Phasen:**")
+        st.write("**Phasen:**")
         phases_list = model.get('phases')
         if phases_list:
             st.write(f"{len(phases_list)} Phase(n) ausgewählt")
@@ -3764,7 +3764,7 @@ def page_details():
             st.write("Alle Phasen verwendet")
     
     with config_col2:
-        st.markdown("**Ziel-Variable:**")
+        st.write("**Ziel-Variable:**")
         target_var = model.get('target_variable', 'N/A')
         target_operator = model.get('target_operator')
         target_value = model.get('target_value')
@@ -3789,7 +3789,7 @@ def page_details():
             else:
                 st.write("**Bedingung:** Nicht konfiguriert")
         
-        st.markdown("**Parameter:**")
+        st.write("**Parameter:**")
         params = model.get('params', {})
         if isinstance(params, str):
             import json
@@ -3883,7 +3883,7 @@ def page_details():
             # Einzelne Scores
             individual_scores = cv_scores.get('scores', [])
             if individual_scores:
-                st.markdown("**Einzelne CV-Scores:**")
+                st.write("**Einzelne CV-Scores:**")
                 st.write(f"Scores: {[f'{s:.4f}' for s in individual_scores]}")
     
     st.divider()
