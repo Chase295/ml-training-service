@@ -3,12 +3,13 @@ FastAPI Routes für ML Training Service
 """
 import os
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Response, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.responses import FileResponse
 from app.api.schemas import (
-    TrainModelRequest, TestModelRequest, CompareModelsRequest, UpdateModelRequest,
+    SimpleTrainModelRequest, TrainModelRequest, TestModelRequest, CompareModelsRequest, UpdateModelRequest,
     ModelResponse, TestResultResponse, ComparisonResponse,
     JobResponse, CreateJobResponse, HealthResponse
 )
@@ -39,6 +40,127 @@ router = APIRouter(prefix="/api", tags=["ML Training Service"])
 # Models Endpoints
 # ============================================================
 
+@router.post("/models/create/simple", response_model=CreateJobResponse, status_code=status.HTTP_201_CREATED)
+async def create_simple_model_job(request: SimpleTrainModelRequest):
+    """
+    Erstellt einen TRAIN-Job mit vereinfachter regelbasierter Vorhersage
+
+    🎯 Einfache Alternative zu /models/create
+    Verwende stattdessen: /models/create/simple
+
+    Beispiel:
+    ```json
+    {
+      "name": "MyModel",
+      "model_type": "xgboost",
+      "target": "price_close > 0.05",
+      "features": "auto",
+      "train_start": "2025-12-27T16:00:00Z",
+      "train_end": "2025-12-27T18:00:00Z"
+    }
+    ```
+    """
+    try:
+        # Parse die Ziel-Regel
+        var, op, val_str = request.target.split()
+        target_value = float(val_str)
+
+        # Erstelle vollständigen TrainModelRequest
+        full_request = TrainModelRequest(
+            name=request.name,
+            model_type=request.model_type,
+            use_time_based_prediction=False,  # Regelbasierte Vorhersage
+            target_var=var,
+            operator=op,
+            target_value=target_value,
+            features=request.features,
+            train_start=request.train_start,
+            train_end=request.train_end,
+            description=request.description,
+            params=request.hyperparameters,
+            validation_split=request.validation_split
+        )
+
+        # Verwende die bestehende Logik
+        return await create_model_job(full_request)
+
+    except Exception as e:
+        logger.error(f"Fehler bei vereinfachter Modell-Erstellung: {e}")
+        raise HTTPException(status_code=400, detail=f"Fehler bei vereinfachter Modell-Erstellung: {str(e)}")
+
+
+@router.post("/models/create/time-based", response_model=CreateJobResponse, status_code=status.HTTP_201_CREATED)
+async def create_time_based_model_job(
+    name: str,
+    model_type: str,
+    target_var: str = "market_cap_close",
+    future_minutes: int = 15,
+    min_percent_change: float = 0.05,
+    direction: str = "both",
+    features: List[str] = None,
+    train_start: datetime = None,
+    train_end: datetime = None,
+    hyperparameters: Optional[Dict[str, Any]] = None
+):
+    """
+    Erstellt einen TRAIN-Job mit zeitbasierter Vorhersage (wie in der UI)
+
+    🎯 Zeitbasierte Vorhersage: "Wird die Variable X in Y Minuten um Z% steigen?"
+
+    Beispiel:
+    ```json
+    {
+      "name": "TimeBased_Model",
+      "model_type": "xgboost",
+      "target_var": "market_cap_close",
+      "future_minutes": 15,
+      "min_percent_change": 0.05,
+      "direction": "both",
+      "features": ["price_open", "price_high", "price_low", "price_close"],
+      "train_start": "2025-12-27T16:00:00Z",
+      "train_end": "2025-12-27T18:00:00Z"
+    }
+    ```
+    """
+    try:
+        # Verwende Standard-Features wenn keine angegeben
+        if features is None:
+            features = ["price_open", "price_high", "price_low", "price_close", "volume_sol", "market_cap_close"]
+
+        # Verwende aktuelle Zeit als Default falls keine Zeiten angegeben
+        if train_start is None or train_end is None:
+            from datetime import datetime, timezone, timedelta
+            now = datetime.now(timezone.utc)
+            if train_end is None:
+                train_end = now
+            if train_start is None:
+                train_start = train_end - timedelta(hours=2)  # 2 Stunden vorher
+
+        # Erstelle vollständigen TrainModelRequest
+        full_request = TrainModelRequest(
+            name=name,
+            model_type=model_type,
+            use_time_based_prediction=True,  # Zeitbasierte Vorhersage
+            target_var=target_var,
+            operator=None,
+            target_value=None,
+            future_minutes=future_minutes,
+            min_percent_change=min_percent_change,
+            direction=direction,
+            features=features,
+            train_start=train_start,
+            train_end=train_end,
+            params=hyperparameters
+        )
+
+        # Verwende die bestehende Logik
+        return await create_model_job(full_request)
+
+    except Exception as e:
+        logger.error(f"Fehler bei zeitbasierter Modell-Erstellung: {e}")
+        raise HTTPException(status_code=400, detail=f"Fehler bei zeitbasierter Modell-Erstellung: {str(e)}")
+
+
 @router.post("/models/create", response_model=CreateJobResponse, status_code=status.HTTP_201_CREATED)
 async def create_model_job(request: TrainModelRequest):
     """
@@ -55,6 +177,7 @@ async def create_model_job(request: TrainModelRequest):
         final_params = request.params or {}
         if request.use_time_based_prediction:
             # Speichere zeitbasierte Parameter in train_params
+            logger.info(f"DEBUG: use_time_based_prediction=True, min_percent_change={request.min_percent_change}")
             final_params = {
                 **final_params,
                 "_time_based": {
@@ -106,7 +229,7 @@ async def create_model_job(request: TrainModelRequest):
             progress_msg=request.name,  # ⚠️ WICHTIG: Name temporär in progress_msg speichern!
             # Zeitbasierte Vorhersage-Parameter
             train_future_minutes=request.future_minutes if request.use_time_based_prediction else None,
-            train_price_change_percent=request.min_percent_change if request.use_time_based_prediction else None,
+            train_price_change_percent=request.price_change_percent if request.use_time_based_prediction else None,
             train_target_direction=request.direction if request.use_time_based_prediction else None
         )
         

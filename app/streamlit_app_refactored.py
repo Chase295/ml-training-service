@@ -20,17 +20,17 @@ st.set_page_config(
 # Imports aus streamlit_pages
 # ============================================================
 
-from streamlit_pages.overview import page_overview
-from streamlit_pages.details import page_details
-from streamlit_pages.test_results import page_test_results
-from streamlit_pages.test_details import page_test_details
-from streamlit_pages.training import page_train
-from streamlit_pages.test import page_test
-from streamlit_pages.compare import page_compare
-from streamlit_pages.comparisons import page_comparisons
-from streamlit_pages.comparison_details import page_comparison_details
-from streamlit_pages.jobs import page_jobs
-from streamlit_pages.tabs import (
+from app.streamlit_pages.overview import page_overview
+from app.streamlit_pages.details import page_details
+from app.streamlit_pages.test_results import page_test_results
+from app.streamlit_pages.test_details import page_test_details
+from app.streamlit_pages.training import page_train
+from app.streamlit_pages.test import page_test
+from app.streamlit_pages.compare import page_compare
+from app.streamlit_pages.comparisons import page_comparisons
+from app.streamlit_pages.comparison_details import page_comparison_details
+from app.streamlit_pages.jobs import page_jobs
+from app.streamlit_pages.tabs import (
     tab_dashboard,
     tab_configuration,
     tab_logs,
@@ -83,13 +83,13 @@ def main():
             page_details()
         else:
             page_overview()
-
+    
     with tab7:
         page_train()
-
+    
     with tab8:
         page_test()
-
+    
     with tab9:
         # Prüfe ob Test-Details angezeigt werden soll
         if st.session_state.get('page') == 'test_details' and st.session_state.get('test_details_id'):
@@ -99,10 +99,10 @@ def main():
             if st.session_state.get('page') == 'test_details':
                 st.session_state.pop('page', None)
             page_test_results()
-
+    
     with tab10:
         # Prüfe ob Vergleichs-Details angezeigt werden soll
-        if st.session_state.get('page') == 'comparison_details' and st.session_state.get('comparison_details_id'):
+        if st.session_state.get('page') == 'comparison_details':
             page_comparison_details()
         else:
             page_compare()
@@ -115,4 +115,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

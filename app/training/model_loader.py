@@ -97,8 +97,20 @@ async def test_model(
     if use_engineered_features:
         engineered_feature_names = get_engineered_feature_names(feature_engineering_windows)
         # Basis-Features sind alle Features die NICHT engineered sind
-        base_features = [f for f in features if f not in engineered_feature_names]
+        # ⚠️ WICHTIG: Konvertiere zu Set für schnelleren Lookup
+        engineered_set = set(engineered_feature_names)
+        base_features = [f for f in features if f not in engineered_set]
+        
+        # Debug: Prüfe ob Filterung funktioniert
+        still_engineered = [f for f in base_features if f in engineered_set]
+        if still_engineered:
+            logger.warning(f"⚠️ WARNUNG: {len(still_engineered)} engineered Features noch in base_features: {still_engineered[:5]}")
+            # Entferne sie manuell
+            base_features = [f for f in base_features if f not in engineered_set]
+        
         logger.info(f"📊 Basis-Features: {len(base_features)}, Engineered Features: {len(engineered_feature_names)}")
+        logger.debug(f"   Basis (erste 10): {base_features[:10]}")
+        logger.debug(f"   Engineered (erste 10): {list(engineered_set)[:10]}")
     else:
         base_features = list(features)
         logger.info(f"📊 Basis-Features: {len(base_features)} (kein Feature-Engineering)")
@@ -108,11 +120,15 @@ async def test_model(
     if model['target_variable'] not in features_with_target:
         features_with_target.append(model['target_variable'])
     
+    # 🆕 Prüfe ob ATH-Daten geladen werden sollen (aus params)
+    include_ath = params.get('include_ath', True)  # Default: True
+    
     test_data = await load_training_data(
         train_start=test_start,
         train_end=test_end,
         features=features_with_target,
-        phases=phases
+        phases=phases,
+        include_ath=include_ath  # 🆕 ATH-Daten optional laden
     )
     
     if len(test_data) == 0:
@@ -134,9 +150,16 @@ async def test_model(
             logger.warning(f"⚠️ Einige Features fehlen in Test-Daten: {missing_features}")
             # Verwende nur verfügbare Features
             features = [f for f in features if f in test_data.columns]
-            logger.info(f"📊 Verwende {len(features)} verfügbare Features")
+            logger.info(f"📊 Verwende {len(features)} verfügbare Features (ausgeschlossen: {len(missing_features)})")
         else:
             logger.info(f"✅ Alle {len(features)} Features (inkl. engineered) verfügbar")
+    else:
+        # Auch ohne Feature-Engineering: Prüfe ob alle Features vorhanden sind
+        missing_features = [f for f in features if f not in test_data.columns]
+        if missing_features:
+            logger.warning(f"⚠️ Einige Features fehlen in Test-Daten: {missing_features}")
+            features = [f for f in features if f in test_data.columns]
+            logger.info(f"📊 Verwende {len(features)} verfügbare Features (ausgeschlossen: {len(missing_features)})")
     
     # 7. Erstelle Labels (gleiche Logik wie beim Training)
     if is_time_based:
@@ -205,7 +228,14 @@ async def test_model(
     # 8. Mache Vorhersagen (verwende alle Features, nicht target_var)
     # target_var wurde nur für Labels benötigt, nicht für Features
     # ⚠️ WICHTIG: features enthält jetzt auch engineered features (wenn Feature-Engineering aktiviert)
-    X_test = test_data[features].values
+    # ⚠️ KRITISCH: Prüfe nochmal ob alle Features vorhanden sind (sicherheitshalber)
+    available_features = [f for f in features if f in test_data.columns]
+    if len(available_features) != len(features):
+        missing = [f for f in features if f not in test_data.columns]
+        logger.error(f"❌ KRITISCH: {len(missing)} Features fehlen: {missing}")
+        raise ValueError(f"Features fehlen in Test-Daten: {missing}")
+    
+    X_test = test_data[available_features].values
     y_test = labels.values
     y_pred = model_obj.predict(X_test)
     y_pred_proba = model_obj.predict_proba(X_test)[:, 1] if hasattr(model_obj, 'predict_proba') else None

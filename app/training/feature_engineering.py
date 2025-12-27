@@ -51,7 +51,8 @@ async def load_training_data(
     train_start: str | datetime,
     train_end: str | datetime,
     features: List[str],
-    phases: Optional[List[int]] = None
+    phases: Optional[List[int]] = None,
+    include_ath: bool = True  # NEU: ATH-Daten optional laden
 ) -> pd.DataFrame:
     """
     Lädt Trainingsdaten aus coin_metrics
@@ -64,6 +65,7 @@ async def load_training_data(
         train_end: Ende-Zeitpunkt (ISO-Format oder datetime, wird zu UTC konvertiert)
         features: Liste der Feature-Namen (z.B. ["price_open", "price_high", "volume_sol"])
         phases: Liste der Coin-Phasen (z.B. [1, 2, 3]) oder None für alle
+        include_ath: Wenn True, werden ATH-Daten aus coin_streams geladen (Default: True)
     
     Returns:
         DataFrame mit Trainingsdaten
@@ -77,46 +79,65 @@ async def load_training_data(
     # ⚠️ WICHTIG: Lade IMMER alle neuen Metriken (auch wenn nicht in Features-Liste)
     # Damit sind sie für Feature-Engineering verfügbar
     base_columns = """
-        timestamp, 
-        phase_id_at_time,
+        cm.timestamp, 
+        cm.phase_id_at_time,
+        cm.mint,
         
         -- Basis OHLC
-        price_open, price_high, price_low, price_close,
+        cm.price_open, cm.price_high, cm.price_low, cm.price_close,
         
         -- Volumen
-        volume_sol, buy_volume_sol, sell_volume_sol, net_volume_sol,
+        cm.volume_sol, cm.buy_volume_sol, cm.sell_volume_sol, cm.net_volume_sol,
         
         -- Market Cap & Phase
-        market_cap_close,
+        cm.market_cap_close,
         
         -- ⚠️ KRITISCH: Dev-Tracking (Rug-Pull-Indikator)
-        dev_sold_amount,
+        cm.dev_sold_amount,
         
         -- Ratio-Metriken (Bot-Spam vs. echtes Interesse)
-        buy_pressure_ratio,
-        unique_signer_ratio,
+        cm.buy_pressure_ratio,
+        cm.unique_signer_ratio,
         
         -- Whale-Aktivität
-        whale_buy_volume_sol,
-        whale_sell_volume_sol,
-        num_whale_buys,
-        num_whale_sells,
+        cm.whale_buy_volume_sol,
+        cm.whale_sell_volume_sol,
+        cm.num_whale_buys,
+        cm.num_whale_sells,
         
         -- Volatilität
-        volatility_pct,
-        avg_trade_size_sol
+        cm.volatility_pct,
+        cm.avg_trade_size_sol
     """
+    
+    # 🆕 ATH-Tracking (vereinfacht - historische Berechnung erfolgt in Python)
+    if include_ath:
+        base_columns += """,
+            -- ATH-Daten aus coin_streams (nur aktuelle Werte für historische Berechnung)
+            COALESCE(cs.ath_price_sol, cm.price_high) as current_ath_price_sol,
+            cs.ath_timestamp as current_ath_timestamp
+        """
     
     # Zusätzliche Features aus Request (falls nicht bereits in base_columns)
     base_column_names = [
-        'timestamp', 'phase_id_at_time', 'price_open', 'price_high', 'price_low', 'price_close',
+        'timestamp', 'phase_id_at_time', 'mint', 'price_open', 'price_high', 'price_low', 'price_close',
         'volume_sol', 'buy_volume_sol', 'sell_volume_sol', 'net_volume_sol',
         'market_cap_close', 'dev_sold_amount', 'buy_pressure_ratio', 'unique_signer_ratio',
         'whale_buy_volume_sol', 'whale_sell_volume_sol', 'num_whale_buys', 'num_whale_sells',
         'volatility_pct', 'avg_trade_size_sol'
     ]
     
-    additional_features = [f for f in features if f not in base_column_names]
+    # 🆕 ATH-Features hinzufügen (wenn include_ath aktiviert)
+    if include_ath:
+        base_column_names.extend([
+            'current_ath_price_sol', 'current_ath_timestamp'
+        ])
+    
+    # Filtere ATH-Features aus, da sie erst später berechnet werden
+    ath_features_to_remove = ['rolling_ath', 'ath_distance_pct', 'ath_breakout', 'minutes_since_ath', 'ath_age_hours', 'ath_is_recent', 'ath_is_old']
+    filtered_features = [f for f in features if f not in ath_features_to_remove]
+
+    additional_features = [f for f in filtered_features if f not in base_column_names]
     
     # Phase-Filter
     if phases:
@@ -128,29 +149,40 @@ async def load_training_data(
         params = [train_start_utc, train_end_utc]
         param_count = 2
     
+    # 🆕 JOIN mit coin_streams für ATH-Daten (wenn aktiviert)
+    if include_ath:
+        join_clause = """
+            LEFT JOIN coin_streams cs ON cm.mint = cs.token_address
+        """
+    else:
+        join_clause = ""
+    
     # ⚠️ RAM-Management: LIMIT für große Datensätze
     if additional_features:
         additional_list = ", ".join(additional_features)
         query = f"""
             SELECT {base_columns}, {additional_list}
-            FROM coin_metrics
-            WHERE timestamp >= $1 AND timestamp <= $2
+            FROM coin_metrics cm
+            {join_clause}
+            WHERE cm.timestamp >= $1 AND cm.timestamp <= $2
             {phase_filter}
-            ORDER BY timestamp
+            ORDER BY cm.timestamp
             LIMIT ${param_count + 1}
         """
     else:
         query = f"""
             SELECT {base_columns}
-            FROM coin_metrics
-            WHERE timestamp >= $1 AND timestamp <= $2
+            FROM coin_metrics cm
+            {join_clause}
+            WHERE cm.timestamp >= $1 AND cm.timestamp <= $2
             {phase_filter}
-            ORDER BY timestamp
+            ORDER BY cm.timestamp
             LIMIT ${param_count + 1}
         """
     params.append(MAX_TRAINING_ROWS)
     
-    logger.info(f"📊 Lade Daten: {train_start_utc} bis {train_end_utc}, Features: {features}, Phasen: {phases}")
+    ath_status = "mit ATH-Daten" if include_ath else "ohne ATH-Daten"
+    logger.info(f"📊 Lade Daten: {train_start_utc} bis {train_end_utc}, Features: {features}, Phasen: {phases}, {ath_status}")
     
     # Führe Query aus
     rows = await pool.fetch(query, *params)
@@ -161,14 +193,57 @@ async def load_training_data(
     
     # Konvertiere zu DataFrame
     data = pd.DataFrame([dict(row) for row in rows])
-    
+
+    # 🧹 DATA CLEANING: Entferne "tote" Daten (Garbage In, Garbage Out verhindern)
+    # 1. Entferne Zeilen mit NULL-Werten in kritischen Spalten
+    # Diese Coins hatten nie Trades oder wurden vom Tracker verpasst
+    logger.info(f"🧹 Data Cleaning: {len(data)} Zeilen vor Filter")
+
+    # Kritische Spalten, die nicht NULL sein dürfen
+    critical_columns = ['price_close', 'volume_sol']
+    if include_ath:
+        critical_columns.append('current_ath_price_sol')
+
+    # Entferne Zeilen mit NULL in kritischen Spalten
+    data_clean = data.dropna(subset=critical_columns)
+    logger.info(f"🧹 Data Cleaning: {len(data_clean)} Zeilen nach NULL-Filter (entfernt: {len(data) - len(data_clean)})")
+
+    # 2. Entferne Coins mit zu wenigen Datenpunkten (Rauschen herausfiltern)
+    # Ein Coin mit nur 3 Datenpunkten kann kein sinnvolles Muster zeigen
+    if 'mint' in data_clean.columns:
+        coin_counts = data_clean['mint'].value_counts()
+        valid_mints = coin_counts[coin_counts >= 30].index  # Mindestens 30 Einträge pro Coin
+        data_final = data_clean[data_clean['mint'].isin(valid_mints)]
+        removed_coins = len(coin_counts) - len(valid_mints)
+        logger.info(f"🧹 Data Cleaning: {len(data_final)} Zeilen nach Coin-Filter (entfernt: {removed_coins} Coins mit <30 Datenpunkten)")
+    else:
+        data_final = data_clean
+        logger.info("🧹 Data Cleaning: Kein 'mint' Column gefunden, überspringe Coin-Filter")
+
+    # Verwende die bereinigten Daten weiter
+    data = data_final
+
     # ⚠️ WICHTIG: Konvertiere alle Decimal-Typen zu float (PostgreSQL liefert Decimal)
     # Dies verhindert "unsupported operand type(s) for -: 'decimal.Decimal' and 'float'" Fehler
     for col in data.columns:
         if col != 'timestamp' and col != 'phase_id_at_time':  # Timestamp und Phase-ID bleiben unverändert
             # Konvertiere zu numeric (float), ignoriere Fehler (z.B. bei Strings)
             data[col] = pd.to_numeric(data[col], errors='coerce')
-    
+
+    # 🆕 HISTORISCHE ATH-FEATURES: Data Leakage-frei berechnen
+    if include_ath:
+        logger.info("🧠 Berechne historische ATH-Features...")
+        data = add_ath_features(data)
+        logger.info(f"✅ ATH-Features hinzugefügt: rolling_ath, ath_distance_pct, ath_breakout, minutes_since_ath")
+
+        # Erweitere Data Cleaning für die neuen ATH-Features
+        ath_critical_columns = ['rolling_ath', 'ath_distance_pct', 'ath_breakout', 'minutes_since_ath']
+        data_clean_ath = data.dropna(subset=ath_critical_columns)
+        removed_ath_rows = len(data) - len(data_clean_ath)
+        if removed_ath_rows > 0:
+            logger.info(f"🧹 ATH-Data-Cleaning: {removed_ath_rows} Zeilen mit NULL ATH-Features entfernt")
+            data = data_clean_ath
+
     # Setze timestamp als Index
     if 'timestamp' in data.columns:
         # ⚠️ WICHTIG: Entferne doppelte Timestamps (kann bei mehreren Coins passieren)
@@ -177,15 +252,18 @@ async def load_training_data(
         data.set_index('timestamp', inplace=True)
         # Sortiere nach Index (falls nicht bereits sortiert)
         data = data.sort_index()
-    
+
     # ⚠️ WICHTIG: phase_id_at_time muss als Spalte bleiben (für zeitbasierte Labels)
     # Es wird nicht als Index verwendet, sondern als normale Spalte behalten
     
-    logger.info(f"✅ {len(data)} Zeilen geladen (nach Duplikat-Entfernung)")
+    logger.info(f"✅ {len(data)} Zeilen final (nach Data Cleaning und Duplikat-Entfernung)")
     
-    # Prüfe ob LIMIT erreicht wurde
-    if len(data) >= MAX_TRAINING_ROWS:
-        logger.warning(f"⚠️ LIMIT erreicht ({MAX_TRAINING_ROWS} Zeilen)! Möglicherweise wurden Daten abgeschnitten.")
+    # Prüfe ob LIMIT erreicht wurde (vor Data Cleaning)
+    # Nach Data Cleaning kann die Anzahl geringer sein
+    if len(data) == 0:
+        logger.warning("⚠️ Alle Daten wurden durch Data Cleaning entfernt! Überprüfe die Datenbank.")
+    elif len(data) < 1000:
+        logger.warning(f"⚠️ Sehr wenige Daten nach Cleaning: {len(data)} Zeilen. Modell-Training könnte unzuverlässig sein.")
     
     return data
 
@@ -475,6 +553,83 @@ def create_time_based_labels(
     
     return labels  # Normale Rückgabe (nur Labels)
 
+def add_ath_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    HISTORISCH KORREKTE ATH-FEATURES: Berechnet ATH-Features ohne Data Leakage
+
+    WICHTIG: Diese Funktion berechnet historische ATH-Werte basierend auf den Daten
+    im DataFrame, nicht aus statischen Datenbank-Snapshots. Dadurch wird Data Leakage
+    verhindert, da die KI nur historische Informationen nutzt.
+
+    Features:
+    - rolling_ath: Historisches All-Time-High bis zu jedem Zeitpunkt
+    - ath_distance_pct: Wie weit ist der aktuelle Preis vom historischen ATH entfernt?
+    - ath_breakout: Ist das aktuelle High höher als das vorherige historische ATH?
+    - minutes_since_ath: Wie viele Minuten sind seit dem letzten ATH vergangen?
+
+    Args:
+        df: DataFrame mit price_high, price_close, timestamp, mint Spalten
+
+    Returns:
+        DataFrame mit zusätzlichen ATH-Features
+    """
+    logger.info("🚀 Berechne historische ATH-Features (Data Leakage-frei)")
+
+    # Kopie erstellen
+    df = df.copy()
+
+    # Sortiere nach mint und timestamp (wichtig für historische Berechnung!)
+    df = df.sort_values(['mint', 'timestamp'])
+
+    # 1. ROLLING ATH berechnen (historisches All-Time-High)
+    df['rolling_ath'] = df.groupby('mint')['price_high'].cummax()
+
+    # 2. ATH_DISTANCE_PCT: Wie weit entfernt vom ATH?
+    # Formel: (ATH - Close) / ATH * 100
+    # Negativ = unter ATH, positiv = über ATH
+    df['ath_distance_pct'] = ((df['rolling_ath'] - df['price_close']) / df['rolling_ath'].replace(0, np.nan)) * 100
+
+    # 3. ATH_BREAKOUT: Neue ATH-Breaks
+    # Ist das aktuelle High höher als das vorherige historische ATH?
+    df['prev_rolling_ath'] = df.groupby('mint')['rolling_ath'].shift(1)
+    df['ath_breakout'] = (df['price_high'] > df['prev_rolling_ath']).astype(int)
+
+    # 4. MINUTES_SINCE_ATH: Zeit seit letztem ATH
+    # Finde den Timestamp des letzten ATH-Breakouts
+    def calculate_minutes_since_ath(group):
+        # Finde alle Zeiten wo ein neuer ATH erreicht wurde
+        ath_timestamps = group.loc[group['ath_breakout'] == 1, 'timestamp']
+
+        if len(ath_timestamps) == 0:
+            # Kein ATH-Breakout gefunden, verwende ersten Timestamp als Baseline
+            group['minutes_since_ath'] = (group['timestamp'] - group['timestamp'].iloc[0]).dt.total_seconds() / 60
+        else:
+            # Berechne Zeit seit letztem ATH-Breakout
+            group['last_ath_timestamp'] = ath_timestamps.reindex(group.index, method='ffill')
+            group['minutes_since_ath'] = (group['timestamp'] - group['last_ath_timestamp']).dt.total_seconds() / 60
+
+        return group
+
+    df = df.groupby('mint', group_keys=False).apply(calculate_minutes_since_ath)
+
+    # 5. Zusätzliche nützliche ATH-Features
+    df['ath_age_hours'] = df['minutes_since_ath'] / 60.0
+    df['ath_is_recent'] = (df['minutes_since_ath'] < 60).astype(int)  # Innerhalb 1 Stunde
+    df['ath_is_old'] = (df['minutes_since_ath'] > 1440).astype(int)  # Älter als 24 Stunden
+
+    # NaN-Werte sinnvoll behandeln
+    df['minutes_since_ath'].fillna(0, inplace=True)  # Am Anfang: 0 Minuten
+    df['ath_age_hours'].fillna(0, inplace=True)
+    df['ath_distance_pct'].fillna(0, inplace=True)  # Wenn kein ATH: 0%
+
+    # Hilfsspalten entfernen
+    df.drop(['prev_rolling_ath', 'last_ath_timestamp'], axis=1, inplace=True, errors='ignore')
+
+    logger.info(f"✅ Historische ATH-Features erstellt: {len(df)} Zeilen")
+    logger.info(f"   Features: rolling_ath, ath_distance_pct, ath_breakout, minutes_since_ath")
+
+    return df
+
 def create_pump_detection_features(
     data: pd.DataFrame,
     window_sizes: list = [5, 10, 15]
@@ -582,6 +737,38 @@ def create_pump_detection_features(
                 df['market_cap_close'].shift(window).replace(0, np.nan)
             ) * 100
     
+    # 🆕 10. ATH-basierte Rolling-Window Features (auf bereits berechneten historischen ATH-Features)
+    # Die historischen ATH-Features werden bereits in add_ath_features() berechnet
+    if 'ath_distance_pct' in df.columns and 'ath_breakout' in df.columns:
+        # Rolling-Windows für ATH-Features (auf historisch korrekten Werten)
+        for window in window_sizes:
+            # ATH-Trend (nähert sich Preis dem ATH?)
+            df[f'ath_distance_trend_{window}'] = (
+                df['ath_distance_pct'].rolling(window, min_periods=1).mean()
+            )
+            df[f'ath_approach_{window}'] = (
+                df[f'ath_distance_trend_{window}'].diff() < 0
+            ).astype(int)  # Nähert sich dem ATH
+
+            # ATH-Breakout-Häufigkeit
+            df[f'ath_breakout_count_{window}'] = (
+                df['ath_breakout'].rolling(window, min_periods=1).sum()
+            )
+
+            # ATH-Volumen bei Breakouts
+            if 'volume_sol' in df.columns:
+                ath_breakout_volume = df['ath_breakout'] * df['volume_sol']
+                df[f'ath_breakout_volume_ma_{window}'] = (
+                    ath_breakout_volume.rolling(window, min_periods=1).mean()
+                )
+
+    # 🆕 11. ATH-Zeit-Features Rolling-Windows (auf bereits berechneten historischen Werten)
+    if 'minutes_since_ath' in df.columns:
+        for window in window_sizes:
+            df[f'ath_age_trend_{window}'] = (
+                df['minutes_since_ath'].rolling(window, min_periods=1).mean()
+            )
+    
     # NaN-Werte durch 0 ersetzen (entstehen durch Rolling/Shift)
     df.fillna(0, inplace=True)
     
@@ -599,6 +786,8 @@ def get_engineered_feature_names(window_sizes: list = [5, 10, 15]) -> list:
     Gibt die Namen aller erstellten Features zurück.
     Nützlich für Feature-Auswahl in UI und Feature Importance.
     
+    ⚠️ WICHTIG: Diese Liste muss mit create_pump_detection_features() übereinstimmen!
+    
     Args:
         window_sizes: Fenstergrößen (muss mit create_pump_detection_features() übereinstimmen)
     
@@ -607,32 +796,57 @@ def get_engineered_feature_names(window_sizes: list = [5, 10, 15]) -> list:
     """
     features = []
     
-    # Price Momentum
+    # ✅ 1. Dev-Tracking Features
+    features.extend(['dev_sold_flag', 'dev_sold_cumsum'])
+    for w in window_sizes:
+        features.append(f'dev_sold_spike_{w}')
+    
+    # ✅ 2. Ratio-Features
+    for w in window_sizes:
+        features.extend([f'buy_pressure_ma_{w}', f'buy_pressure_trend_{w}'])
+    
+    # ✅ 3. Whale-Aktivität Features
+    features.append('whale_net_volume')
+    for w in window_sizes:
+        features.append(f'whale_activity_{w}')
+    
+    # ✅ 4. Volatilitäts-Features
+    for w in window_sizes:
+        features.extend([f'volatility_ma_{w}', f'volatility_spike_{w}'])
+    
+    # ✅ 5. Wash-Trading Detection
+    for w in window_sizes:
+        features.append(f'wash_trading_flag_{w}')
+    
+    # ✅ 6. Net-Volume Features
+    for w in window_sizes:
+        features.extend([f'net_volume_ma_{w}', f'volume_flip_{w}'])
+    
+    # ✅ 7. Price Momentum
     for w in window_sizes:
         features.extend([f'price_change_{w}', f'price_roc_{w}'])
     
-    # Volume Patterns
+    # ✅ 8. Volume Patterns
     for w in window_sizes:
         features.extend([f'volume_ratio_{w}', f'volume_spike_{w}'])
     
-    # Buy/Sell Pressure
-    features.extend(['buy_sell_ratio', 'buy_pressure', 'sell_pressure'])
-    
-    # Whale Activity
-    features.append('whale_buy_sell_ratio')
-    for w in window_sizes:
-        features.append(f'whale_activity_spike_{w}')
-    
-    # Price Volatility
-    for w in window_sizes:
-        features.extend([f'price_volatility_{w}', f'price_range_{w}'])
-    
-    # Market Cap Velocity
+    # ✅ 9. Market Cap Velocity
     for w in window_sizes:
         features.append(f'mcap_velocity_{w}')
     
-    # Order Book Imbalance
-    features.append('order_imbalance')
+    # 🆕 10. ATH-basierte Rolling-Window Features
+    # Hinweis: ath_distance_pct, ath_breakout, ath_age_hours, ath_is_recent, ath_is_old
+    # werden bereits in add_ath_features() erstellt und sind nicht in dieser Liste
+
+    # ATH Rolling-Window Features
+    for w in window_sizes:
+        features.extend([
+            f'ath_distance_trend_{w}',
+            f'ath_approach_{w}',
+            f'ath_breakout_count_{w}',
+            f'ath_breakout_volume_ma_{w}',
+            f'ath_age_trend_{w}'
+        ])
     
     return features
 
@@ -644,8 +858,34 @@ CRITICAL_FEATURES = [
     "whale_buy_volume_sol",
     "whale_sell_volume_sol",
     "net_volume_sol",
-    "volatility_pct"
+    "volatility_pct",
+    "ath_distance_pct",  # 🆕 KRITISCH: Historische ATH-Distance (Data Leakage-frei)
+    "ath_breakout",  # 🆕 KRITISCH: Historische ATH-Breakouts
+    "minutes_since_ath"  # 🆕 KRITISCH: Zeit seit letztem ATH
 ]
+
+def get_available_ath_features(include_ath: bool = True) -> list:
+    """
+    Gibt die verfügbaren ATH-Features zurück (wenn ATH aktiviert ist).
+
+    Args:
+        include_ath: Ob ATH-Features berechnet wurden
+
+    Returns:
+        Liste der verfügbaren ATH-Features
+    """
+    if not include_ath:
+        return []
+
+    return [
+        'rolling_ath',
+        'ath_distance_pct',
+        'ath_breakout',
+        'minutes_since_ath',
+        'ath_age_hours',
+        'ath_is_recent',
+        'ath_is_old'
+    ]
 
 def validate_critical_features(features: List[str]) -> Dict[str, bool]:
     """
@@ -661,6 +901,70 @@ def validate_critical_features(features: List[str]) -> Dict[str, bool]:
         feature: feature in features 
         for feature in CRITICAL_FEATURES
     }
+
+
+async def validate_ath_data_availability(
+    train_start: datetime | str,
+    train_end: datetime | str
+) -> Dict[str, Any]:
+    """
+    Prüft ob ATH-Daten für den Zeitraum verfügbar sind.
+    
+    Args:
+        train_start: Start-Zeitpunkt
+        train_end: Ende-Zeitpunkt
+    
+    Returns:
+        Dict mit:
+        - available: bool
+        - coins_with_ath: int
+        - coins_without_ath: int
+        - coverage_pct: float
+        - total_coins: int
+    """
+    pool = await get_pool()
+    
+    # Konvertiere zu UTC
+    train_start_utc = _ensure_utc(train_start)
+    train_end_utc = _ensure_utc(train_end)
+    
+    # Prüfe wie viele Coins ATH-Daten haben
+    query = """
+        SELECT 
+            COUNT(DISTINCT cm.mint) as total_coins,
+            COUNT(DISTINCT CASE WHEN COALESCE(cs.ath_price_sol, 0) > 0 THEN cm.mint END) as coins_with_ath,
+            COUNT(DISTINCT CASE WHEN COALESCE(cs.ath_price_sol, 0) = 0 OR cs.ath_price_sol IS NULL THEN cm.mint END) as coins_without_ath
+        FROM coin_metrics cm
+        LEFT JOIN coin_streams cs ON cm.mint = cs.token_address
+        WHERE cm.timestamp >= $1 AND cm.timestamp <= $2
+    """
+    
+    try:
+        row = await pool.fetchrow(query, train_start_utc, train_end_utc)
+        
+        total_coins = row['total_coins'] or 0
+        coins_with_ath = row['coins_with_ath'] or 0
+        coins_without_ath = row['coins_without_ath'] or 0
+        
+        coverage_pct = (coins_with_ath / total_coins * 100) if total_coins > 0 else 0.0
+        
+        return {
+            "available": coins_with_ath > 0,
+            "coins_with_ath": coins_with_ath,
+            "coins_without_ath": coins_without_ath,
+            "coverage_pct": coverage_pct,
+            "total_coins": total_coins
+        }
+    except Exception as e:
+        logger.warning(f"⚠️ Fehler bei ATH-Daten-Validierung: {e}")
+        return {
+            "available": False,
+            "coins_with_ath": 0,
+            "coins_without_ath": 0,
+            "coverage_pct": 0.0,
+            "total_coins": 0,
+            "error": str(e)
+        }
 
 
 def check_overlap(

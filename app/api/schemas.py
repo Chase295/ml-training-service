@@ -9,6 +9,70 @@ from pydantic import BaseModel, validator, Field, model_validator
 # Request Schemas
 # ============================================================
 
+class SimpleTrainModelRequest(BaseModel):
+    """Vereinfachte Request für regelbasierte Modell-Training (einfacher als TrainModelRequest)"""
+    name: str = Field(..., description="Modell-Name (eindeutig)")
+    model_type: str = Field(..., description="Modell-Typ: 'random_forest' oder 'xgboost'")
+    target: str = Field(..., description="Ziel-Regel (z.B. 'price_close > 0.05' oder 'market_cap_close >= 0.1')")
+    features: List[str] = Field(..., description="Liste der Feature-Namen (oder 'auto' für alle verfügbaren)")
+    train_start: datetime = Field(..., description="Start-Zeitpunkt (ISO-Format mit UTC)")
+    train_end: datetime = Field(..., description="Ende-Zeitpunkt (ISO-Format mit UTC)")
+    description: Optional[str] = Field(None, description="Beschreibung des Modells")
+
+    # Optionale erweiterte Parameter
+    hyperparameters: Optional[Dict[str, Any]] = Field(None, description="Hyperparameter (überschreibt Defaults)")
+    validation_split: Optional[float] = Field(0.2, description="Validierungs-Split (0.1-0.5)")
+
+    @validator('model_type')
+    def validate_model_type(cls, v):
+        """Validiert dass nur random_forest oder xgboost erlaubt sind"""
+        allowed = ['random_forest', 'xgboost']
+        if v not in allowed:
+            raise ValueError(f'model_type muss einer von {allowed} sein')
+        return v
+
+    @validator('target')
+    def validate_target(cls, v):
+        """Validiert und parsed die Ziel-Regel (z.B. 'price_close > 0.05')"""
+        if not isinstance(v, str):
+            raise ValueError('target muss ein String sein (z.B. "price_close > 0.05")')
+
+        # Parse die Regel (vereinfacht)
+        parts = v.split()
+        if len(parts) != 3:
+            raise ValueError('target muss Format "variable operator value" haben (z.B. "price_close > 0.05")')
+
+        var, op, val_str = parts
+
+        # Validiere Operator
+        allowed_ops = ['>', '<', '>=', '<=', '=']
+        if op not in allowed_ops:
+            raise ValueError(f'Operator muss einer von {allowed_ops} sein')
+
+        # Validiere Variable (vereinfacht)
+        allowed_vars = ['price_close', 'price_open', 'price_high', 'price_low', 'market_cap_close', 'volume_sol']
+        if var not in allowed_vars:
+            raise ValueError(f'Variable muss einer von {allowed_vars} sein')
+
+        # Validiere Wert
+        try:
+            float(val_str)
+        except ValueError:
+            raise ValueError(f'Wert muss eine Zahl sein (du hast "{val_str}" verwendet)')
+
+        return v
+
+    @validator('features')
+    def validate_features(cls, v):
+        """Validiert Features - erlaubt 'auto' als Spezialwert"""
+        if isinstance(v, str) and v.lower() == 'auto':
+            return ['price_open', 'price_high', 'price_low', 'price_close', 'volume_sol', 'market_cap_close']
+        elif isinstance(v, list):
+            return v
+        else:
+            raise ValueError('features muss eine Liste von Strings oder "auto" sein')
+
+
 class TrainModelRequest(BaseModel):
     """Request für Modell-Training"""
     name: str = Field(..., description="Modell-Name (eindeutig)")
@@ -61,30 +125,55 @@ class TrainModelRequest(BaseModel):
         """Validiert Operator - Optional wenn zeitbasierte Vorhersage aktiviert"""
         if v is None:
             # Prüfe ob zeitbasierte Vorhersage aktiviert ist
-            if values.get('use_time_based_prediction'):
+            if values.get('use_time_based_prediction', False):
                 return v  # Erlaubt wenn zeitbasierte Vorhersage aktiviert
-            raise ValueError('operator ist erforderlich wenn zeitbasierte Vorhersage nicht aktiviert ist')
+            raise ValueError('operator ist erforderlich wenn zeitbasierte Vorhersage nicht aktiviert ist (verwende ">" für "größer als", "<" für "kleiner als")')
         allowed = ['>', '<', '>=', '<=', '=']
         if v not in allowed:
-            raise ValueError(f'operator muss einer von {allowed} sein')
+            raise ValueError(f'operator muss einer von {allowed} sein (du hast "{v}" verwendet)')
         return v
-    
+
     @validator('target_var')
     def validate_target_var(cls, v, values):
         """Validiert target_var - Optional wenn zeitbasierte Vorhersage aktiviert"""
         if v is None:
-            if values.get('use_time_based_prediction'):
+            if values.get('use_time_based_prediction', False):
                 return v  # Erlaubt wenn zeitbasierte Vorhersage aktiviert
-            raise ValueError('target_var ist erforderlich wenn zeitbasierte Vorhersage nicht aktiviert ist')
+            raise ValueError('target_var ist erforderlich wenn zeitbasierte Vorhersage nicht aktiviert ist (z.B. "price_close", "market_cap_close")')
         return v
-    
+
     @validator('target_value')
     def validate_target_value(cls, v, values):
         """Validiert target_value - Optional wenn zeitbasierte Vorhersage aktiviert"""
         if v is None:
-            if values.get('use_time_based_prediction'):
+            if values.get('use_time_based_prediction', False):
                 return v  # Erlaubt wenn zeitbasierte Vorhersage aktiviert
-            raise ValueError('target_value ist erforderlich wenn zeitbasierte Vorhersage nicht aktiviert ist')
+            raise ValueError('target_value ist erforderlich wenn zeitbasierte Vorhersage nicht aktiviert ist (z.B. 0.05 für 5% Änderung)')
+        return v
+
+    @validator('future_minutes')
+    def validate_future_minutes(cls, v, values):
+        """Validiert future_minutes - Erforderlich wenn zeitbasierte Vorhersage aktiviert"""
+        if values.get('use_time_based_prediction', False):
+            if v is None or v <= 0:
+                raise ValueError('future_minutes ist erforderlich und muss > 0 sein wenn zeitbasierte Vorhersage aktiviert ist (z.B. 15 für 15 Minuten)')
+        return v
+
+    @validator('min_percent_change')
+    def validate_min_percent_change(cls, v, values):
+        """Validiert min_percent_change - Erforderlich wenn zeitbasierte Vorhersage aktiviert"""
+        if values.get('use_time_based_prediction', False):
+            if v is None or v <= 0:
+                raise ValueError('min_percent_change ist erforderlich und muss > 0 sein wenn zeitbasierte Vorhersage aktiviert ist (z.B. 0.05 für 5% Änderung)')
+        return v
+
+    @validator('direction')
+    def validate_direction(cls, v, values):
+        """Validiert direction - Muss gültig sein wenn zeitbasierte Vorhersage aktiviert"""
+        if values.get('use_time_based_prediction', False):
+            allowed = ['up', 'down', 'both']
+            if v not in allowed:
+                raise ValueError(f'direction muss einer von {allowed} sein wenn zeitbasierte Vorhersage aktiviert ist (du hast "{v}" verwendet)')
         return v
     
     @validator('train_start', 'train_end', pre=True)

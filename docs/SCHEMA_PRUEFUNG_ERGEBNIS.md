@@ -34,8 +34,18 @@
 - ✅ `net_volume_sol` (NUMERIC) - **Netto-Volumen**
 - ✅ `volatility_pct` (NUMERIC) - **Volatilität**
 - ✅ `avg_trade_size_sol` (NUMERIC) - **Durchschnittliche Trade-Größe**
+- ✅ `mint` (VARCHAR) - **Token-Adresse (für ATH-JOIN benötigt)**
 
 **⚠️ WICHTIG:** Diese Spalten müssen in der `coin_metrics` Tabelle vorhanden sein, bevor das Training startet!
+
+### ✅ coin_streams Tabelle (für ATH-Tracking)
+**Erwartete Spalten (aus pump-metric Service):**
+- ✅ `token_address` (VARCHAR) - **Token-Adresse (für JOIN mit coin_metrics)**
+- ✅ `ath_price_sol` (NUMERIC) - **🆕 All-Time High Preis**
+- ✅ `ath_timestamp` (TIMESTAMPTZ) - **🆕 Timestamp des letzten ATH-Updates**
+- ✅ `is_active` (BOOLEAN) - **Aktiver Coin (für Filterung)**
+
+**⚠️ WICHTIG:** ATH-Daten werden über LEFT JOIN aus `coin_streams` geladen. Falls keine ATH-Daten verfügbar sind, werden NULL-Werte durch 0 ersetzt.
 
 **Prüfung:**
 ```sql
@@ -164,9 +174,11 @@ CREATE TABLE exchange_rates (
 - [ ] Spalte `rug_detection_metrics` in `ml_test_results` vorhanden
 
 ### Code-Prüfung:
-- [ ] `load_training_data()` lädt alle neuen Metriken
+- [x] `load_training_data()` lädt alle neuen Metriken (inkl. ATH-Daten)
 - [ ] `enrich_with_market_context()` kann Exchange Rates laden
-- [ ] `create_pump_detection_features()` nutzt neue Metriken (nicht alte Spalten)
+- [x] `create_pump_detection_features()` nutzt neue Metriken (inkl. ATH-Features)
+- [x] `validate_ath_data_availability()` prüft ATH-Daten-Verfügbarkeit
+- [x] Performance-Indizes für ATH-JOIN erstellt (`migration_add_ath_indexes.sql`)
 
 ---
 

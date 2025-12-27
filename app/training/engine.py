@@ -39,7 +39,12 @@ DEFAULT_FEATURES = [
     
     # Volatilität
     "volatility_pct",
-    "avg_trade_size_sol"
+    "avg_trade_size_sol",
+    
+    # 🆕 ATH-Tracking (Breakout-Erkennung)
+    "ath_price_sol",
+    "price_vs_ath_pct",      # Wie weit vom ATH entfernt?
+    "minutes_since_ath"      # Wie lange ist es her?
 ]
 
 # XGBoost optional (für lokales Testing ohne libomp)
@@ -235,6 +240,21 @@ def train_model_sync(
     if balance_ratio < 0.1:
         logger.warning(f"⚠️ Labels sehr unausgewogen: {positive_count} positive, {negative_count} negative (Ratio: {balance_ratio:.2f})")
     
+    # 1.4. ATH-Features zur Features-Liste hinzufügen (nach Daten-Laden)
+    # ⚠️ WICHTIG: ATH-Features werden bereits im DataFrame berechnet, müssen aber zur features Liste hinzugefügt werden
+    include_ath = params.get('include_ath', True)
+    logger.info(f"🔍 ATH-Debug: include_ath={include_ath}, rolling_ath in data.columns={('rolling_ath' in data.columns)}")
+
+    if include_ath and 'rolling_ath' in data.columns:
+        from app.training.feature_engineering import get_available_ath_features
+        ath_features = get_available_ath_features(include_ath=True)
+        # Füge nur Features hinzu, die tatsächlich im DataFrame vorhanden sind
+        available_ath_features = [f for f in ath_features if f in data.columns]
+        features.extend(available_ath_features)
+        logger.info(f"🧠 ATH-Features zur Liste hinzugefügt: {len(available_ath_features)} Features ({available_ath_features})")
+    else:
+        logger.warning(f"⚠️ ATH-Features nicht verfügbar: include_ath={include_ath}, rolling_ath exists={('rolling_ath' in data.columns)}")
+
     # 1.5. Feature-Engineering: Erstelle zusätzliche Features im DataFrame (wenn aktiviert)
     # ⚠️ WICHTIG: Muss nach Label-Erstellung, aber vor Feature-Vorbereitung erfolgen!
     use_engineered_features = params.get('use_engineered_features', False)  # Default: False für Rückwärtskompatibilität
@@ -287,15 +307,21 @@ def train_model_sync(
         )
     
     # 2. Prepare Features (X) und Labels (y)
-    # ⚠️ WICHTIG: features enthält jetzt auch engineered features (wenn aktiviert)
-    # Prüfe ob alle Features in data vorhanden sind
+    # ⚠️ WICHTIG: features enthält jetzt auch engineered und ATH features
+    # Verwende nur Features, die tatsächlich in den Daten vorhanden sind
+    available_features = [f for f in features if f in data.columns]
     missing_features = [f for f in features if f not in data.columns]
+
     if missing_features:
-        raise ValueError(f"Features nicht in Daten gefunden: {missing_features}")
-    
-    X = data[features].values
+        logger.warning(f"⚠️ Einige Features nicht in Daten gefunden (werden übersprungen): {missing_features}")
+
+    if not available_features:
+        raise ValueError("Keine Features in Daten gefunden!")
+
+    X = data[available_features].values
     y = labels.values
-    logger.info(f"📊 Training mit {len(features)} Features, {len(data)} Samples")
+    logger.info(f"📊 Training mit {len(available_features)} Features ({available_features}), {len(data)} Samples")
+    logger.info(f"⚠️ Übersprungene Features: {missing_features}")
     
     # 3. TimeSeriesSplit für Cross-Validation (bei Zeitreihen wichtig!)
     use_timeseries_split = params.get('use_timeseries_split', True)  # Default: True
@@ -624,22 +650,51 @@ async def train_model(
     use_engineered_features = final_params.get('use_engineered_features', False)
     if use_engineered_features:
         logger.info("🔧 Feature-Engineering aktiviert (wird nach Daten-Laden durchgeführt)")
+
+    # 2.4. ATH-Features werden später nach Daten-Laden hinzugefügt
+    # (nicht hier, da sie erst in Python berechnet werden)
     
-    # 2.5. Bereite Features vor (verhindert Data Leakage bei zeitbasierter Vorhersage)
-    # ⚠️ WICHTIG: features enthält NOCH KEINE engineered features (werden später im DataFrame erstellt)
+    # 2.5. Filtere ATH-Features aus der Loading-Liste (werden später berechnet)
+    # ⚠️ WICHTIG: ATH-Features existieren nicht in der Datenbank und werden erst in Python berechnet
+    ath_features = ['rolling_ath', 'ath_distance_pct', 'ath_breakout', 'minutes_since_ath', 'ath_age_hours', 'ath_is_recent', 'ath_is_old']
+    features_for_db = [f for f in features if f not in ath_features]
+
+    # Bereite Features vor (verhindert Data Leakage bei zeitbasierter Vorhersage)
     features_for_loading, features_for_training = prepare_features_for_training(
-        features=features,  # Basis-Features (ohne engineered features)
+        features=features_for_db,  # Basis-Features ohne ATH-Features (nicht in DB)
         target_var=target_var,
         use_time_based=use_time_based
     )
-    logger.info(f"📊 Features für Laden: {len(features_for_loading)}, Features für Training: {len(features_for_training)}")
+    logger.info(f"📊 Features für Laden: {len(features_for_loading)} - {features_for_loading}")
+    logger.info(f"📊 Features für Training: {len(features_for_training)} - {features_for_training}")
+    logger.info(f"🧠 ATH-Features werden nach Daten-Laden hinzugefügt: {len(ath_features)} Features - {ath_features}")
+    logger.info(f"🧠 Original features: {features}")
+    logger.info(f"🧠 features_for_db: {features_for_db}")
+
+    # Aktualisiere die features Liste für weitere Verarbeitung
+    features = features_for_training.copy()
+    
+    # 2.6. Prüfe ATH-Daten-Verfügbarkeit (wenn include_ath aktiviert)
+    from app.training.feature_engineering import validate_ath_data_availability
+    # Prüfe automatisch, ob ATH-Features in der Features-Liste sind
+    ath_feature_names = ['rolling_ath', 'ath_distance_pct', 'ath_breakout', 'minutes_since_ath', 'ath_age_hours', 'ath_is_recent', 'ath_is_old']
+    has_ath_features = any(f in features for f in ath_feature_names)
+    include_ath = final_params.get('include_ath', has_ath_features)  # Auto-detect ATH-Features
+    
+    if include_ath:
+        ath_validation = await validate_ath_data_availability(train_start, train_end)
+        if not ath_validation["available"]:
+            logger.warning(f"⚠️ Keine ATH-Daten verfügbar! Coverage: {ath_validation.get('coverage_pct', 0):.1f}%")
+        else:
+            logger.info(f"✅ ATH-Daten verfügbar: {ath_validation['coins_with_ath']}/{ath_validation['total_coins']} Coins ({ath_validation['coverage_pct']:.1f}%)")
     
     # 3. Lade Trainingsdaten (async) - mit target_var für Labels
     data = await load_training_data(
         train_start=train_start,
         train_end=train_end,
         features=features_for_loading,  # Enthält target_var (für Labels benötigt)
-        phases=phases
+        phases=phases,
+        include_ath=include_ath  # 🆕 ATH-Daten optional laden
     )
     
     if len(data) == 0:
@@ -666,8 +721,8 @@ async def train_model(
         ]
         # Nur hinzufügen wenn nicht bereits vorhanden
         for cf in context_features:
-            if cf not in features_for_training and cf in data.columns:
-                features_for_training.append(cf)
+            if cf not in features and cf in data.columns:
+                features.append(cf)
                 logger.info(f"➕ Context-Feature '{cf}' hinzugefügt")
     else:
         logger.info("ℹ️ Marktstimmung deaktiviert (use_market_context=False)")
@@ -687,7 +742,7 @@ async def train_model(
         train_model_sync,
         data,  # Bereits geladene Daten
         model_type,
-        features_for_training,  # ✅ Enthält target_var NICHT bei zeitbasierter Vorhersage!
+        features,  # ✅ Enthält target_var NICHT bei zeitbasierter Vorhersage!
         target_var,
         target_operator,
         target_value,

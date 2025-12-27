@@ -611,29 +611,42 @@ async def create_comparison(
     b_confusion_matrix_jsonb = to_jsonb(b_confusion_matrix)
     
     # ✅ NEU: Prüfe ob test_a_id und test_b_id gesetzt sind (neue Struktur)
-    # Falls nicht, verwende alte Struktur (Rückwärtskompatibilität)
-    use_new_structure = test_a_id is not None and test_b_id is not None
-    
+    # Versuche zuerst neue Struktur, dann alte als Fallback
     try:
-        if use_new_structure:
-            # ✅ NEUE STRUKTUR: Verweise auf Test-Ergebnisse
-            comparison_id = await pool.fetchval(
-                """
-                INSERT INTO ml_comparisons (
-                    model_a_id, model_b_id, test_start, test_end,
-                    test_a_id, test_b_id,  -- ✅ NEU: Verweise auf Test-Ergebnisse
-                    num_samples, winner_id
-                ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8
-                ) RETURNING id
-                """,
+        # Versuche NEUE STRUKTUR zuerst
+        comparison_id = await pool.fetchval(
+            """
+            INSERT INTO ml_comparisons (
                 model_a_id, model_b_id, test_start, test_end,
-                test_a_id, test_b_id,
+                test_a_id, test_b_id,  -- ✅ NEU: Verweise auf Test-Ergebnisse
                 num_samples, winner_id
-            )
-        else:
-            # ⚠️ ALTE STRUKTUR: Alle Metriken werden gespeichert (Rückwärtskompatibilität)
-            comparison_id = await pool.fetchval(
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8
+            ) RETURNING id
+            """,
+            model_a_id, model_b_id, test_start, test_end,
+            test_a_id, test_b_id,
+            num_samples, winner_id
+        )
+    except Exception as e:
+        # Fallback auf ALTE STRUKTUR wenn neue Spalten nicht existieren
+        logger.warning(f"Neue Vergleichs-Struktur nicht verfügbar, verwende Fallback: {e}")
+        comparison_id = await pool.fetchval(
+            """
+            INSERT INTO ml_comparisons (
+                model_a_id, model_b_id, test_start, test_end,
+                num_samples, winner_id
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6
+            ) RETURNING id
+            """,
+                model_a_id, model_b_id, test_start, test_end,
+                num_samples, winner_id
+        )
+
+    except Exception:
+        # ⚠️ ALTE STRUKTUR: Alle Metriken werden gespeichert (Rückwärtskompatibilität)
+        comparison_id = await pool.fetchval(
                 """
                 INSERT INTO ml_comparisons (
                     model_a_id, model_b_id, test_start, test_end, num_samples,
@@ -693,38 +706,133 @@ async def create_comparison(
     return comparison_id
 
 async def get_comparison(comparison_id: int) -> Optional[Dict[str, Any]]:
-    """Holt einen Vergleich und konvertiert JSONB-Felder"""
+    """Holt einen Vergleich mit Metriken aus Test-Ergebnissen"""
     pool = await get_pool()
     row = await pool.fetchrow(
-        "SELECT * FROM ml_comparisons WHERE id = $1",
+        """
+        SELECT
+            c.*,
+            -- Metriken aus Test-Ergebnissen für Modell A
+            ta.accuracy as a_accuracy,
+            ta.f1_score as a_f1,
+            ta.precision_score as a_precision,
+            ta.recall as a_recall,
+            ta.roc_auc as a_roc_auc,
+            ta.mcc as a_mcc,
+            ta.fpr as a_fpr,
+            ta.fnr as a_fnr,
+            ta.simulated_profit_pct as a_simulated_profit_pct,
+            ta.tp as a_tp,
+            ta.tn as a_tn,
+            ta.fp as a_fp,
+            ta.fn as a_fn,
+            ta.num_samples as a_num_samples,
+            ta.train_accuracy as a_train_accuracy,
+            ta.train_f1 as a_train_f1,
+            ta.accuracy_degradation as a_accuracy_degradation,
+            ta.f1_degradation as a_f1_degradation,
+            ta.is_overfitted as a_is_overfitted,
+            ta.test_duration_days as a_test_duration_days,
+            -- Metriken aus Test-Ergebnissen für Modell B
+            tb.accuracy as b_accuracy,
+            tb.f1_score as b_f1,
+            tb.precision_score as b_precision,
+            tb.recall as b_recall,
+            tb.roc_auc as b_roc_auc,
+            tb.mcc as b_mcc,
+            tb.fpr as b_fpr,
+            tb.fnr as b_fnr,
+            tb.simulated_profit_pct as b_simulated_profit_pct,
+            tb.tp as b_tp,
+            tb.tn as b_tn,
+            tb.fp as b_fp,
+            tb.fn as b_fn,
+            tb.num_samples as b_num_samples,
+            tb.train_accuracy as b_train_accuracy,
+            tb.train_f1 as b_train_f1,
+            tb.accuracy_degradation as b_accuracy_degradation,
+            tb.f1_degradation as b_f1_degradation,
+            tb.is_overfitted as b_is_overfitted,
+            tb.test_duration_days as b_test_duration_days
+        FROM ml_comparisons c
+        LEFT JOIN ml_test_results ta ON c.test_a_id = ta.id
+        LEFT JOIN ml_test_results tb ON c.test_b_id = tb.id
+        WHERE c.id = $1
+        """,
         comparison_id
     )
     if not row:
         return None
-    
+
     comparison_dict = dict(row)
     # Konvertiere JSONB-Felder von Strings zu Python-Objekten (refactored: nutze Helper-Funktion)
     jsonb_fields = ['a_confusion_matrix', 'b_confusion_matrix']
     comparison_dict = convert_jsonb_fields(comparison_dict, jsonb_fields, direction="from")
-    
+
     return comparison_dict
 
 async def list_comparisons(
     limit: int = 100,
     offset: int = 0
 ) -> List[Dict[str, Any]]:
-    """Listet alle Vergleichs-Ergebnisse"""
+    """Listet alle Vergleichs-Ergebnisse mit Metriken aus Test-Ergebnissen"""
     pool = await get_pool()
-    
+
     rows = await pool.fetch(
         """
-        SELECT * FROM ml_comparisons 
-        ORDER BY created_at DESC
+        SELECT
+            c.*,
+            -- Metriken aus Test-Ergebnissen für Modell A
+            ta.accuracy as a_accuracy,
+            ta.f1_score as a_f1,
+            ta.precision_score as a_precision,
+            ta.recall as a_recall,
+            ta.roc_auc as a_roc_auc,
+            ta.mcc as a_mcc,
+            ta.fpr as a_fpr,
+            ta.fnr as a_fnr,
+            ta.simulated_profit_pct as a_simulated_profit_pct,
+            ta.tp as a_tp,
+            ta.tn as a_tn,
+            ta.fp as a_fp,
+            ta.fn as a_fn,
+            ta.num_samples as a_num_samples,
+            ta.train_accuracy as a_train_accuracy,
+            ta.train_f1 as a_train_f1,
+            ta.accuracy_degradation as a_accuracy_degradation,
+            ta.f1_degradation as a_f1_degradation,
+            ta.is_overfitted as a_is_overfitted,
+            ta.test_duration_days as a_test_duration_days,
+            -- Metriken aus Test-Ergebnissen für Modell B
+            tb.accuracy as b_accuracy,
+            tb.f1_score as b_f1,
+            tb.precision_score as b_precision,
+            tb.recall as b_recall,
+            tb.roc_auc as b_roc_auc,
+            tb.mcc as b_mcc,
+            tb.fpr as b_fpr,
+            tb.fnr as b_fnr,
+            tb.simulated_profit_pct as b_simulated_profit_pct,
+            tb.tp as b_tp,
+            tb.tn as b_tn,
+            tb.fp as b_fp,
+            tb.fn as b_fn,
+            tb.num_samples as b_num_samples,
+            tb.train_accuracy as b_train_accuracy,
+            tb.train_f1 as b_train_f1,
+            tb.accuracy_degradation as b_accuracy_degradation,
+            tb.f1_degradation as b_f1_degradation,
+            tb.is_overfitted as b_is_overfitted,
+            tb.test_duration_days as b_test_duration_days
+        FROM ml_comparisons c
+        LEFT JOIN ml_test_results ta ON c.test_a_id = ta.id
+        LEFT JOIN ml_test_results tb ON c.test_b_id = tb.id
+        ORDER BY c.created_at DESC
         LIMIT $1 OFFSET $2
         """,
         limit, offset
     )
-    
+
     # Konvertiere JSONB-Felder von Strings zu Python-Objekten (refactored: nutze Helper-Funktion)
     result = []
     jsonb_fields = ['a_confusion_matrix', 'b_confusion_matrix']
@@ -732,7 +840,7 @@ async def list_comparisons(
         comparison_dict = dict(row)
         comparison_dict = convert_jsonb_fields(comparison_dict, jsonb_fields, direction="from")
         result.append(comparison_dict)
-    
+
     return result
 
 async def delete_comparison(comparison_id: int) -> bool:
