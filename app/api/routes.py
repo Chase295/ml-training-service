@@ -229,7 +229,7 @@ async def create_model_job(request: TrainModelRequest):
             progress_msg=request.name,  # ⚠️ WICHTIG: Name temporär in progress_msg speichern!
             # Zeitbasierte Vorhersage-Parameter
             train_future_minutes=request.future_minutes if request.use_time_based_prediction else None,
-            train_price_change_percent=request.price_change_percent if request.use_time_based_prediction else None,
+            train_price_change_percent=request.min_percent_change if request.use_time_based_prediction else None,
             train_target_direction=request.direction if request.use_time_based_prediction else None
         )
         
