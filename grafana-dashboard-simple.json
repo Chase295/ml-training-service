@@ -1,0 +1,267 @@
+{
+  "dashboard": {
+    "title": "ML Training Service Dashboard",
+    "tags": [
+      "ml-training-service",
+      "prometheus"
+    ],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Service Uptime",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "ml_service_uptime_seconds",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "Database Connection",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "ml_db_connected",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Total Jobs",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "ml_jobs_total",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 4,
+        "title": "Active Jobs",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "ml_active_jobs",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        }
+      },
+      {
+        "id": 5,
+        "title": "Job Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "ml_job_status",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "options": {
+                  "0": {
+                    "text": "FAILED",
+                    "color": "red"
+                  },
+                  "1": {
+                    "text": "PENDING",
+                    "color": "orange"
+                  },
+                  "2": {
+                    "text": "RUNNING",
+                    "color": "blue"
+                  },
+                  "3": {
+                    "text": "COMPLETED",
+                    "color": "green"
+                  },
+                  "4": {
+                    "text": "CANCELLED",
+                    "color": "gray"
+                  }
+                },
+                "type": "value"
+              }
+            ]
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 6,
+        "title": "Job Progress",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "ml_job_progress_percent",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        }
+      },
+      {
+        "id": 7,
+        "title": "Memory Usage",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "process_resident_memory_bytes",
+            "legendFormat": "Resident Memory",
+            "refId": "A"
+          },
+          {
+            "expr": "process_virtual_memory_bytes",
+            "legendFormat": "Virtual Memory",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 24
+        }
+      },
+      {
+        "id": 8,
+        "title": "CPU Usage",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(process_cpu_seconds_total[5m])",
+            "legendFormat": "CPU Rate (5m)",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 32
+        }
+      },
+      {
+        "id": 9,
+        "title": "Jobs Timeline",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "ml_jobs_total",
+            "legendFormat": "Total Jobs",
+            "refId": "A"
+          },
+          {
+            "expr": "ml_models_total",
+            "legendFormat": "Total Models",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 40
+        }
+      },
+      {
+        "id": 10,
+        "title": "Job Duration",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "ml_job_duration_seconds",
+            "legendFormat": "Current Job Duration",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 48
+        }
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {},
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": []
+    },
+    "refresh": "30s",
+    "schemaVersion": 38,
+    "version": 1,
+    "links": []
+  }
+}
