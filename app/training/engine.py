@@ -245,15 +245,37 @@ def train_model_sync(
     include_ath = params.get('include_ath', True)
     logger.info(f"🔍 ATH-Debug: include_ath={include_ath}, rolling_ath in data.columns={('rolling_ath' in data.columns)}")
 
-    if include_ath and 'rolling_ath' in data.columns:
+    if include_ath:
         from app.training.feature_engineering import get_available_ath_features
         ath_features = get_available_ath_features(include_ath=True)
-        # Füge nur Features hinzu, die tatsächlich im DataFrame vorhanden sind
-        available_ath_features = [f for f in ath_features if f in data.columns]
-        features.extend(available_ath_features)
-        logger.info(f"🧠 ATH-Features zur Liste hinzugefügt: {len(available_ath_features)} Features ({available_ath_features})")
+
+        # 🛠️ FIX: Stelle sicher, dass alle ATH-Features vorhanden sind
+        missing_ath = [f for f in ath_features if f not in data.columns]
+        if missing_ath:
+            logger.warning(f"⚠️ {len(missing_ath)} ATH-Features fehlen - add_ath_features wurde nicht korrekt ausgeführt?")
+            logger.warning(f"Fehlende ATH-Features: {missing_ath}")
+            # Erstelle fehlende ATH-Features mit Fallback-Werten
+            for feature in missing_ath:
+                if feature == 'rolling_ath':
+                    data[feature] = data['price_high'].fillna(0)
+                elif feature == 'ath_distance_pct':
+                    data[feature] = 0.0
+                elif feature == 'ath_breakout':
+                    data[feature] = 0
+                elif feature == 'minutes_since_ath':
+                    data[feature] = 0.0
+                elif feature == 'ath_age_hours':
+                    data[feature] = 0.0
+                elif feature == 'ath_is_recent':
+                    data[feature] = 0
+                elif feature == 'ath_is_old':
+                    data[feature] = 0
+
+        # Füge alle ATH-Features zur Liste hinzu (jetzt sollten alle vorhanden sein)
+        features.extend(ath_features)
+        logger.info(f"🧠 ATH-Features zur Liste hinzugefügt: {len(ath_features)} Features ({ath_features})")
     else:
-        logger.warning(f"⚠️ ATH-Features nicht verfügbar: include_ath={include_ath}, rolling_ath exists={('rolling_ath' in data.columns)}")
+        logger.info("ℹ️ ATH-Features deaktiviert (Standard)")
 
     # 1.5. Feature-Engineering: Erstelle zusätzliche Features im DataFrame (wenn aktiviert)
     # ⚠️ WICHTIG: Muss nach Label-Erstellung, aber vor Feature-Vorbereitung erfolgen!
@@ -277,9 +299,45 @@ def train_model_sync(
         
         # Erweitere features-Liste um tatsächlich erstellte Features
         features.extend(engineered_features_created)
-        
+
         logger.info(f"✅ {len(engineered_features_created)} zusätzliche Features erstellt und zu Features-Liste hinzugefügt")
         logger.info(f"📊 Gesamt-Features: {len(features)}")
+
+        # 🛠️ FIX: Stelle sicher, dass alle erwarteten engineered Features erstellt werden
+        # Wenn nicht alle Features erstellt wurden, erstelle fehlende mit 0-Werten
+        expected_engineered = get_engineered_feature_names(window_sizes)
+        missing_engineered = [f for f in expected_engineered if f not in engineered_features_created]
+
+        if missing_engineered:
+            logger.warning(f"⚠️ {len(missing_engineered)} engineered Features fehlen - erstelle mit Fallback-Werten")
+            for feature in missing_engineered:
+                data[feature] = 0.0  # Fallback-Wert
+            # Füge auch die fehlenden Features zur Liste hinzu
+            features.extend(missing_engineered)
+            logger.info(f"✅ Fallback-Features hinzugefügt: {len(missing_engineered)} Features")
+
+        # 🐛 DEBUG: Detaillierte Analyse des Feature-Engineering-Bugs
+        logger.info(f"🐛 DEBUG - Feature Engineering Analyse:")
+        logger.info(f"🐛 DEBUG - Ursprüngliche Spalten: {len(original_columns)}")
+        logger.info(f"🐛 DEBUG - Neue Spalten erstellt: {len(new_columns)} - {sorted(list(new_columns))}")
+
+        # Erwartete Features von get_engineered_feature_names()
+        expected_engineered = get_engineered_feature_names(window_sizes)
+        logger.info(f"🐛 DEBUG - Erwartete engineered Features: {len(expected_engineered)} - {sorted(expected_engineered)}")
+
+        # Welche erwarteten Features wurden NICHT erstellt?
+        missing_engineered = [f for f in expected_engineered if f not in new_columns]
+        if missing_engineered:
+            logger.error(f"🐛 BUG - FEHLENDE ENGINEERED FEATURES: {len(missing_engineered)} - {sorted(missing_engineered)}")
+
+        # Welche Basis-Spalten fehlen? (Grund für nicht-erstellte Features)
+        required_bases = ['dev_sold_amount', 'buy_pressure_ratio', 'unique_signer_ratio',
+                         'whale_buy_volume_sol', 'whale_sell_volume_sol', 'volatility_pct',
+                         'net_volume_sol', 'price_close', 'volume_sol', 'market_cap_close',
+                         'ath_distance_pct', 'ath_breakout', 'minutes_since_ath']
+        missing_bases = [col for col in required_bases if col not in data.columns]
+        if missing_bases:
+            logger.warning(f"🐛 WARN - FEHLENDE BASIS-SPALTE: {missing_bases} (Grund für fehlende engineered Features)")
     else:
         logger.info("ℹ️ Feature-Engineering deaktiviert (Standard-Modus)")
     
@@ -322,6 +380,45 @@ def train_model_sync(
     y = labels.values
     logger.info(f"📊 Training mit {len(available_features)} Features ({available_features}), {len(data)} Samples")
     logger.info(f"⚠️ Übersprungene Features: {missing_features}")
+
+    # 🐛 DEBUG: Finale Feature-Analyse
+    logger.info(f"🐛 DEBUG - Finale Feature-Zusammenfassung:")
+    logger.info(f"🐛 DEBUG - Ursprüngliche Features-Liste: {len(features)}")
+    logger.info(f"🐛 DEBUG - Verfügbare Features: {len(available_features)}")
+    logger.info(f"🐛 DEBUG - Fehlende Features: {len(missing_features)}")
+
+    # Kategorisiere fehlende Features
+    base_features = ['price_open', 'price_high', 'price_low', 'price_close', 'volume_sol',
+                    'buy_volume_sol', 'sell_volume_sol', 'net_volume_sol', 'market_cap_close',
+                    'phase_id_at_time', 'dev_sold_amount', 'buy_pressure_ratio', 'unique_signer_ratio',
+                    'whale_buy_volume_sol', 'whale_sell_volume_sol', 'volatility_pct', 'avg_trade_size_sol',
+                    'ath_price_sol', 'price_vs_ath_pct', 'minutes_since_ath']
+
+    ath_features = ['rolling_ath', 'ath_distance_pct', 'ath_breakout', 'ath_age_hours',
+                   'ath_is_recent', 'ath_is_old']
+
+    engineered_features = get_engineered_feature_names(window_sizes)
+
+    missing_base = [f for f in missing_features if f in base_features]
+    missing_ath = [f for f in missing_features if f in ath_features]
+    missing_engineered = [f for f in missing_features if f in engineered_features]
+
+    logger.info(f"🐛 DEBUG - Fehlende Basis-Features: {len(missing_base)} - {missing_base}")
+    logger.info(f"🐛 DEBUG - Fehlende ATH-Features: {len(missing_ath)} - {missing_ath}")
+    logger.info(f"🐛 DEBUG - Fehlende Engineered-Features: {len(missing_engineered)} - {missing_engineered}")
+
+    # Prüfe Daten-Verfügbarkeit für kritische Spalten
+    critical_columns = ['dev_sold_amount', 'buy_pressure_ratio', 'unique_signer_ratio',
+                       'ath_distance_pct', 'ath_breakout', 'minutes_since_ath']
+    logger.info(f"🐛 DEBUG - Kritische Spalten in DataFrame:")
+    for col in critical_columns:
+        exists = col in data.columns
+        if exists:
+            nan_count = data[col].isna().sum()
+            zero_count = (data[col] == 0).sum()
+            logger.info(f"🐛 DEBUG -   {col}: ✅ vorhanden, NaN: {nan_count}, Zero: {zero_count}")
+        else:
+            logger.info(f"🐛 DEBUG -   {col}: ❌ FEHLT")
     
     # 3. TimeSeriesSplit für Cross-Validation (bei Zeitreihen wichtig!)
     use_timeseries_split = params.get('use_timeseries_split', True)  # Default: True
@@ -531,12 +628,21 @@ def train_model_sync(
         feature_importance = dict(zip(features, importances.tolist()))
         logger.info(f"🎯 Feature Importance: {feature_importance}")
     
-    # 7. Speichere Modell als .pkl
+    # 7. Speichere Modell als .pkl (Datei) UND serialisiere für DB
     os.makedirs(model_storage_path, exist_ok=True)
     # ⚠️ WICHTIG: UTC-Zeitstempel verwenden!
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     model_filename = f"model_{model_type}_{timestamp}.pkl"
     model_path = os.path.join(model_storage_path, model_filename)
+
+    # Serialisiere Modell für DB-Speicherung (BLOB)
+    import io
+    model_buffer = io.BytesIO()
+    joblib.dump(model, model_buffer)
+    model_data = model_buffer.getvalue()
+    logger.info(f"📦 Modell serialisiert: {len(model_data)} Bytes")
+
+    # Speichere auch als Datei (für Backward-Kompatibilität)
     joblib.dump(model, model_path)
     logger.info(f"💾 Modell gespeichert: {model_path}")
     
@@ -559,6 +665,7 @@ def train_model_sync(
         "simulated_profit_pct": float(simulated_profit_pct),  # NEU
         "rug_detection_metrics": rug_metrics,  # NEU: Rug-spezifische Metriken
         "model_path": model_path,
+        "model_data": model_data,  # NEU: Serialisiertes Modell für DB
         "feature_importance": feature_importance,  # Als Dict (für JSONB)
         "num_samples": len(data),
         "num_features": len(features),

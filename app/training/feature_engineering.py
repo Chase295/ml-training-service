@@ -653,34 +653,56 @@ def create_pump_detection_features(
         logger.warning("⚠️ Daten wurden nach timestamp sortiert für Feature-Engineering")
     
     # ✅ 1. Dev-Tracking Features (KRITISCH!)
+    # ROBUST: Erstelle Features auch wenn Spalte fehlt oder NULL ist
     if 'dev_sold_amount' in df.columns:
-        df['dev_sold_flag'] = (df['dev_sold_amount'] > 0).astype(int)
-        df['dev_sold_cumsum'] = df['dev_sold_amount'].cumsum()
+        dev_sold_clean = df['dev_sold_amount'].fillna(0)
+        df['dev_sold_flag'] = (dev_sold_clean > 0).astype(int)
+        df['dev_sold_cumsum'] = dev_sold_clean.cumsum()
         for window in window_sizes:
             df[f'dev_sold_spike_{window}'] = (
-                df['dev_sold_amount'].rolling(window, min_periods=1).sum() > 0
+                dev_sold_clean.rolling(window, min_periods=1).sum() > 0
             ).astype(int)
+    else:
+        # Fallback: Erstelle Features mit 0-Werten wenn Spalte fehlt
+        logger.warning("⚠️ dev_sold_amount fehlt - erstelle Dev-Features mit 0-Werten")
+        df['dev_sold_flag'] = 0
+        df['dev_sold_cumsum'] = 0.0
+        for window in window_sizes:
+            df[f'dev_sold_spike_{window}'] = 0
     
     # ✅ 2. Ratio-Features (schon berechnet in coin_metrics!)
+    # ROBUST: Erstelle Features auch wenn Spalte fehlt
     if 'buy_pressure_ratio' in df.columns:
+        buy_pressure_clean = df['buy_pressure_ratio'].fillna(0)
         for window in window_sizes:
             df[f'buy_pressure_ma_{window}'] = (
-                df['buy_pressure_ratio'].rolling(window, min_periods=1).mean()
+                buy_pressure_clean.rolling(window, min_periods=1).mean()
             )
             df[f'buy_pressure_trend_{window}'] = (
-                df['buy_pressure_ratio'] - df[f'buy_pressure_ma_{window}']
+                buy_pressure_clean - df[f'buy_pressure_ma_{window}']
             )
+    else:
+        logger.warning("⚠️ buy_pressure_ratio fehlt - erstelle Ratio-Features mit 0-Werten")
+        for window in window_sizes:
+            df[f'buy_pressure_ma_{window}'] = 0.0
+            df[f'buy_pressure_trend_{window}'] = 0.0
     
     # ✅ 3. Whale-Aktivität Features
+    # ROBUST: Erstelle Features auch wenn Spalten fehlen
     if 'whale_buy_volume_sol' in df.columns and 'whale_sell_volume_sol' in df.columns:
-        df['whale_net_volume'] = (
-            df['whale_buy_volume_sol'] - df['whale_sell_volume_sol']
-        )
+        whale_buy_clean = df['whale_buy_volume_sol'].fillna(0)
+        whale_sell_clean = df['whale_sell_volume_sol'].fillna(0)
+        df['whale_net_volume'] = whale_buy_clean - whale_sell_clean
         for window in window_sizes:
             df[f'whale_activity_{window}'] = (
-                df['whale_buy_volume_sol'].rolling(window, min_periods=1).sum() +
-                df['whale_sell_volume_sol'].rolling(window, min_periods=1).sum()
+                whale_buy_clean.rolling(window, min_periods=1).sum() +
+                whale_sell_clean.rolling(window, min_periods=1).sum()
             )
+    else:
+        logger.warning("⚠️ whale_buy_volume_sol oder whale_sell_volume_sol fehlen - erstelle Whale-Features mit 0-Werten")
+        df['whale_net_volume'] = 0.0
+        for window in window_sizes:
+            df[f'whale_activity_{window}'] = 0.0
     
     # ✅ 4. Volatilitäts-Features (nutzt neue volatility_pct Spalte!)
     if 'volatility_pct' in df.columns:
