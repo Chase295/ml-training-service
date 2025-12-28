@@ -87,7 +87,7 @@ class TrainModelRequest(BaseModel):
     # NEU: Zeitbasierte Vorhersagen (ZUERST, damit Validatoren darauf zugreifen können)
     use_time_based_prediction: bool = Field(False, description="Zeitbasierte Vorhersage aktivieren")
     future_minutes: Optional[int] = Field(None, description="Anzahl Minuten in die Zukunft (z.B. 10)")
-    min_percent_change: Optional[float] = Field(None, alias="price_change_percent", description="Mindest-Prozent-Änderung (z.B. 5.0 für 5%)")
+    min_percent_change: Optional[float] = Field(None, description="Mindest-Prozent-Änderung (z.B. 5.0 für 5%)")
     direction: Optional[str] = Field("up", description="Richtung: 'up' (steigt) oder 'down' (fällt)")
     
     # NEU: Feature-Engineering
