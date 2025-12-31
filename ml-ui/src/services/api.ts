@@ -19,15 +19,10 @@ import type {
   ConfigUpdateResponse,
 } from '../types/api';
 
-// API Base URL - Flexibel für verschiedene Deployments
+// API Base URL - GENAU WIE PUMP-FIND: Immer window.location.origin!
+// pump-find setzt VITE_API_BASE_URL im Dockerfile, aber verwendet es NIE!
+// Das ist der Schlüssel zum Erfolg in Coolify!
 const getApiBaseUrl = (): string => {
-  // Wenn VITE_API_BASE_URL gesetzt ist (z.B. in Coolify), verwende es
-  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envApiUrl && envApiUrl !== 'http://localhost:8000') {
-    return envApiUrl; // Direkt zum Backend (z.B. externe URL in Coolify)
-  }
-
-  // Standard: window.location.origin für nginx proxy (wie pump-find)
   return window.location.origin;
 };
 
@@ -83,7 +78,7 @@ export const mlApi = {
     const response = await api.post('/api/models/create/time-based', request);
     return response.data;
   },
-
+  
   // Create model - full training
   async createModel(request: TrainModelRequest): Promise<CreateJobResponse> {
     const response = await api.post('/api/models/create', request);
@@ -151,7 +146,7 @@ export const mlApi = {
   async deleteTestResult(testId: string): Promise<void> {
     await api.delete(`/api/test-results/${testId}`);
   },
-
+  
   // ============================================================
   // Comparisons
   // ============================================================
@@ -213,7 +208,7 @@ export const mlApi = {
     const response = await api.get('/api/config');
     return response.data;
   },
-
+  
   // Update configuration
   async updateConfig(config: ConfigUpdateRequest): Promise<ConfigUpdateResponse> {
     const response = await api.put('/api/config', config);
