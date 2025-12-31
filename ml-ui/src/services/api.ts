@@ -21,19 +21,20 @@ import type {
 
 // API Base URL - dynamisch zur Laufzeit berechnet oder aus Environment
 const getApiBaseUrl = (): string => {
-  // Prüfe zuerst auf Environment-Variable (für Docker/Production)
-  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envApiUrl) {
-    return envApiUrl;
+  // Entwicklung: Immer Vite-Proxy verwenden (leerer String = relativ zur gleichen Domain)
+  if (import.meta.env.DEV) {
+    return ''; // Vite proxy fängt /api/* ab
   }
 
-  // Entwicklung: Verwende leeren String für Vite-Proxy
-  // Production (Docker): Verwende window.location.origin für nginx proxy
-  if (import.meta.env.DEV) {
-    return ''; // Vite proxy abfangen
-  } else {
-    return window.location.origin; // nginx proxy weiterleiten
+  // Production: Prüfe zuerst auf explizite Environment-Variable
+  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envApiUrl) {
+    return envApiUrl; // Direkt zum Backend (z.B. für separate Services)
   }
+
+  // Production Default: Verwende window.location.origin für nginx proxy
+  // nginx fängt /api/* ab und leitet an BACKEND_URL weiter
+  return window.location.origin;
 };
 
 // API_BASE_URL wird dynamisch zur Laufzeit berechnet
