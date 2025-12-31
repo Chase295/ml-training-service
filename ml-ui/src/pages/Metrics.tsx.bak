@@ -152,7 +152,7 @@ const Metrics: React.FC = () => {
 
       {/* Key Metrics Overview */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid xs={12} md={6} lg={3}>
+        <Grid item xs={12} md={6} lg={3}>
           <MetricCard
             title="Aktive Jobs"
             value={jobs.filter(j => j.status === 'running').length.toString()}
@@ -162,7 +162,7 @@ const Metrics: React.FC = () => {
           />
         </Grid>
 
-        <Grid xs={12} md={6} lg={3}>
+        <Grid item xs={12} md={6} lg={3}>
           <MetricCard
             title="Verarbeitete Jobs"
             value={health?.total_jobs_processed?.toLocaleString() || '0'}
@@ -173,7 +173,7 @@ const Metrics: React.FC = () => {
           />
         </Grid>
 
-        <Grid xs={12} md={6} lg={3}>
+        <Grid item xs={12} md={6} lg={3}>
           <MetricCard
             title="Trainierte Modelle"
             value={models.length.toString()}
@@ -183,7 +183,7 @@ const Metrics: React.FC = () => {
           />
         </Grid>
 
-        <Grid xs={12} md={6} lg={3}>
+        <Grid item xs={12} md={6} lg={3}>
           <MetricCard
             title="System Uptime"
             value={health ? `${Math.floor(health.uptime_seconds / 3600)}h` : 'N/A'}
@@ -196,7 +196,7 @@ const Metrics: React.FC = () => {
 
       {/* Performance Charts */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid xs={12} lg={8}>
+        <Grid item xs={12} lg={8}>
           <Paper sx={{
             p: 3,
             bgcolor: 'rgba(255, 255, 255, 0.05)',
@@ -237,7 +237,7 @@ const Metrics: React.FC = () => {
           </Paper>
         </Grid>
 
-        <Grid xs={12} lg={4}>
+        <Grid item xs={12} lg={4}>
           <Paper sx={{
             p: 3,
             bgcolor: 'rgba(255, 255, 255, 0.05)',
@@ -271,7 +271,7 @@ const Metrics: React.FC = () => {
 
       {/* Model Analytics */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid xs={12} lg={6}>
+        <Grid item xs={12} lg={6}>
           <Paper sx={{
             p: 3,
             bgcolor: 'rgba(255, 255, 255, 0.05)',
@@ -299,7 +299,7 @@ const Metrics: React.FC = () => {
           </Paper>
         </Grid>
 
-        <Grid xs={12} lg={6}>
+        <Grid item xs={12} lg={6}>
           <Paper sx={{
             p: 3,
             bgcolor: 'rgba(255, 255, 255, 0.05)',
@@ -360,7 +360,7 @@ const Metrics: React.FC = () => {
         </Typography>
 
         <Grid container spacing={3}>
-          <Grid xs={12} md={4}>
+          <Grid item xs={12} md={4}>
             <Box sx={{ textAlign: 'center' }}>
               <Typography variant="h4" sx={{ color: '#00d4ff', mb: 1 }}>
                 {parsedMetrics.memory_usage || 'N/A'} MB
@@ -371,7 +371,7 @@ const Metrics: React.FC = () => {
             </Box>
           </Grid>
 
-          <Grid xs={12} md={4}>
+          <Grid item xs={12} md={4}>
             <Box sx={{ textAlign: 'center' }}>
               <Typography variant="h4" sx={{ color: '#ff9800', mb: 1 }}>
                 {parsedMetrics.cpu_usage?.toFixed(1) || 'N/A'}%
@@ -382,7 +382,7 @@ const Metrics: React.FC = () => {
             </Box>
           </Grid>
 
-          <Grid xs={12} md={4}>
+          <Grid item xs={12} md={4}>
             <Box sx={{ textAlign: 'center' }}>
               <Typography variant="h4" sx={{ color: '#4caf50', mb: 1 }}>
                 {parsedMetrics.training_duration?.toFixed(0) || 'N/A'}s

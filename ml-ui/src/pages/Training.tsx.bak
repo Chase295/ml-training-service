@@ -182,7 +182,7 @@ const Training: React.FC = () => {
             </Typography>
 
             <Grid container spacing={3}>
-              <Grid xs={12} md={6}>
+              <Grid item xs={12} md={6}>
                 <ValidatedTextField
                   label="Modell-Name"
                   value={formData.name || ''}
@@ -193,7 +193,7 @@ const Training: React.FC = () => {
                 />
               </Grid>
 
-              <Grid xs={12} md={6}>
+              <Grid item xs={12} md={6}>
                 <ValidatedSelect
                   label="Modell-Typ"
                   value={formData.model_type || 'xgboost'}
@@ -206,7 +206,7 @@ const Training: React.FC = () => {
                 />
               </Grid>
 
-              <Grid xs={12}>
+              <Grid item xs={12}>
                 <ValidatedTextField
                   label="Beschreibung (optional)"
                   value={formData.description || ''}
@@ -262,7 +262,7 @@ const Training: React.FC = () => {
                 </Alert>
 
                 <Grid container spacing={3}>
-                  <Grid xs={12} md={4}>
+                  <Grid item xs={12} md={4}>
                     <ValidatedTextField
                       label="Minuten in die Zukunft"
                       value={formData.future_minutes?.toString() || '15'}
@@ -272,7 +272,7 @@ const Training: React.FC = () => {
                     />
                   </Grid>
 
-                  <Grid xs={12} md={4}>
+                  <Grid item xs={12} md={4}>
                     <ValidatedTextField
                       label="Mindest-Änderung (%)"
                       value={formData.min_percent_change?.toString() || '5.0'}
@@ -283,7 +283,7 @@ const Training: React.FC = () => {
                     />
                   </Grid>
 
-                  <Grid xs={12} md={4}>
+                  <Grid item xs={12} md={4}>
                     <ValidatedSelect
                       label="Richtung"
                       value={formData.direction || 'up'}
@@ -308,7 +308,7 @@ const Training: React.FC = () => {
                 </Alert>
 
                 <Grid container spacing={3}>
-                  <Grid xs={12} md={4}>
+                  <Grid item xs={12} md={4}>
                     <ValidatedSelect
                       label="Ziel-Variable"
                       value={formData.target_var || 'price_close'}
@@ -323,7 +323,7 @@ const Training: React.FC = () => {
                     />
                   </Grid>
 
-                  <Grid xs={12} md={4}>
+                  <Grid item xs={12} md={4}>
                     <ValidatedSelect
                       label="Operator"
                       value={formData.operator || '>'}
@@ -339,7 +339,7 @@ const Training: React.FC = () => {
                     />
                   </Grid>
 
-                  <Grid xs={12} md={4}>
+                  <Grid item xs={12} md={4}>
                     <ValidatedTextField
                       label="Schwellwert"
                       value={formData.target_value?.toString() || ''}
@@ -372,7 +372,7 @@ const Training: React.FC = () => {
               <CardContent>
                 <Typography variant="h6" gutterBottom>📅 Training-Zeitraum</Typography>
                 <Grid container spacing={3}>
-                  <Grid xs={12} md={6}>
+                  <Grid item xs={12} md={6}>
                     <DateProvider>
                       <ValidatedDateTimePicker
                         label="Start-Zeitpunkt"
@@ -384,7 +384,7 @@ const Training: React.FC = () => {
                       />
                     </DateProvider>
                   </Grid>
-                  <Grid xs={12} md={6}>
+                  <Grid item xs={12} md={6}>
                     <DateProvider>
                       <ValidatedDateTimePicker
                         label="End-Zeitpunkt"
@@ -444,7 +444,7 @@ const Training: React.FC = () => {
             </Typography>
 
             <Grid container spacing={3}>
-              <Grid xs={12} md={6}>
+              <Grid item xs={12} md={6}>
                 <FormControlLabel
                   control={
                     <Checkbox
@@ -457,7 +457,7 @@ const Training: React.FC = () => {
                 />
               </Grid>
 
-              <Grid xs={12} md={6}>
+              <Grid item xs={12} md={6}>
                 <FormControlLabel
                   control={
                     <Checkbox
@@ -471,7 +471,7 @@ const Training: React.FC = () => {
               </Grid>
 
               {formData.use_timeseries_split && (
-                <Grid xs={12} md={6}>
+                <Grid item xs={12} md={6}>
                   <ValidatedTextField
                     label="CV Splits"
                     value={formData.cv_splits?.toString() || '5'}
@@ -482,7 +482,7 @@ const Training: React.FC = () => {
                 </Grid>
               )}
 
-              <Grid xs={12} md={6}>
+              <Grid item xs={12} md={6}>
                 <FormControlLabel
                   control={
                     <Checkbox
@@ -503,7 +503,7 @@ const Training: React.FC = () => {
               </AccordionSummary>
               <AccordionDetails>
                 <Grid container spacing={3}>
-                  <Grid xs={12} md={6}>
+                  <Grid item xs={12} md={6}>
                     <ValidatedTextField
                       label="Max Depth (XGBoost)"
                       value={formData.params?.max_depth?.toString() || ''}
@@ -512,7 +512,7 @@ const Training: React.FC = () => {
                       helperText="Maximale Baumtiefe (3-10, Default: 6)"
                     />
                   </Grid>
-                  <Grid xs={12} md={6}>
+                  <Grid item xs={12} md={6}>
                     <ValidatedTextField
                       label="Learning Rate (XGBoost)"
                       value={formData.params?.learning_rate?.toString() || ''}
@@ -522,7 +522,7 @@ const Training: React.FC = () => {
                       helperText="Lernrate (0.01-0.3, Default: 0.1)"
                     />
                   </Grid>
-                  <Grid xs={12} md={6}>
+                  <Grid item xs={12} md={6}>
                     <ValidatedTextField
                       label="N Estimators"
                       value={formData.params?.n_estimators?.toString() || ''}

@@ -213,7 +213,7 @@ const Models: React.FC = () => {
 
       {/* Statistics */}
       <Grid container spacing={2} sx={{ mb: 4 }}>
-        <Grid xs={6} md={3}>
+        <Grid item xs={6} md={3}>
           <Box sx={{
             p: 2,
             bgcolor: 'rgba(0, 212, 255, 0.1)',
@@ -225,7 +225,7 @@ const Models: React.FC = () => {
             <Typography variant="body2" color="textSecondary">Gesamt</Typography>
           </Box>
         </Grid>
-        <Grid xs={6} md={3}>
+        <Grid item xs={6} md={3}>
           <Box sx={{
             p: 2,
             bgcolor: 'rgba(76, 175, 80, 0.1)',
@@ -237,7 +237,7 @@ const Models: React.FC = () => {
             <Typography variant="body2" color="textSecondary">Bereit</Typography>
           </Box>
         </Grid>
-        <Grid xs={6} md={3}>
+        <Grid item xs={6} md={3}>
           <Box sx={{
             p: 2,
             bgcolor: 'rgba(255, 152, 0, 0.1)',
@@ -249,7 +249,7 @@ const Models: React.FC = () => {
             <Typography variant="body2" color="textSecondary">Training</Typography>
           </Box>
         </Grid>
-        <Grid xs={6} md={3}>
+        <Grid item xs={6} md={3}>
           <Box sx={{
             p: 2,
             bgcolor: 'rgba(244, 67, 54, 0.1)',
@@ -276,7 +276,7 @@ const Models: React.FC = () => {
         </Typography>
 
         <Grid container spacing={3} alignItems="center">
-          <Grid xs={12} md={3}>
+          <Grid item xs={12} md={3}>
             <TextField
               fullWidth
               placeholder="Suche nach Name, Typ oder Ziel..."
@@ -300,7 +300,7 @@ const Models: React.FC = () => {
             />
           </Grid>
 
-          <Grid xs={12} md={2}>
+          <Grid item xs={12} md={2}>
             <FormControl fullWidth>
               <InputLabel>Status</InputLabel>
               <Select
@@ -316,7 +316,7 @@ const Models: React.FC = () => {
             </FormControl>
           </Grid>
 
-          <Grid xs={12} md={2}>
+          <Grid item xs={12} md={2}>
             <FormControl fullWidth>
               <InputLabel>Modell-Typ</InputLabel>
               <Select
@@ -331,7 +331,7 @@ const Models: React.FC = () => {
             </FormControl>
           </Grid>
 
-          <Grid xs={12} md={2}>
+          <Grid item xs={12} md={2}>
             <FormControl fullWidth>
               <InputLabel>Sortieren nach</InputLabel>
               <Select
@@ -347,7 +347,7 @@ const Models: React.FC = () => {
             </FormControl>
           </Grid>
 
-          <Grid xs={12} md={1}>
+          <Grid item xs={12} md={1}>
             <Button
               fullWidth
               variant="outlined"
@@ -357,7 +357,7 @@ const Models: React.FC = () => {
             </Button>
           </Grid>
 
-          <Grid xs={12} md={2}>
+          <Grid item xs={12} md={2}>
             <Button
               fullWidth
               variant="outlined"
@@ -457,7 +457,7 @@ const Models: React.FC = () => {
       ) : (
         <Grid container spacing={3}>
           {filteredAndSortedModels.map((model) => (
-            <Grid xs={12} md={6} lg={4} key={model.id}>
+            <Grid item xs={12} md={6} lg={4} key={model.id}>
               <ModelCard
                 model={model}
                 isSelected={selectedModelIds.includes(model.id)}
