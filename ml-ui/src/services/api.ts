@@ -19,21 +19,9 @@ import type {
   ConfigUpdateResponse,
 } from '../types/api';
 
-// API Base URL - dynamisch zur Laufzeit berechnet oder aus Environment
+// API Base URL - IMMER window.location.origin verwenden (wie pump-find)
+// Das ermöglicht es nginx/Vite proxy, die /api/* Anfragen abzufangen
 const getApiBaseUrl = (): string => {
-  // Entwicklung: Immer Vite-Proxy verwenden (leerer String = relativ zur gleichen Domain)
-  if (import.meta.env.DEV) {
-    return ''; // Vite proxy fängt /api/* ab
-  }
-
-  // Production: Prüfe zuerst auf explizite Environment-Variable
-  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envApiUrl) {
-    return envApiUrl; // Direkt zum Backend (z.B. für separate Services)
-  }
-
-  // Production Default: Verwende window.location.origin für nginx proxy
-  // nginx fängt /api/* ab und leitet an BACKEND_URL weiter
   return window.location.origin;
 };
 
