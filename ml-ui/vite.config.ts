@@ -10,7 +10,7 @@ export default defineConfig({
     // allowedHosts: undefined bedeutet alle Hosts sind erlaubt
     proxy: {
       '/api': {
-        target: 'http://localhost:8002',
+        target: 'http://localhost:8001', // Verwende Port 8001 für lokales Backend
         changeOrigin: true,
         configure: (proxy, options) => {
           proxy.on('error', (err, req, res) => {

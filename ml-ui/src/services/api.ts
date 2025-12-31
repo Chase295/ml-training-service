@@ -19,9 +19,15 @@ import type {
   ConfigUpdateResponse,
 } from '../types/api';
 
-// API Base URL - wie in pump-find: dynamisch zur Laufzeit berechnet
+// API Base URL - dynamisch zur Laufzeit berechnet oder aus Environment
 const getApiBaseUrl = (): string => {
-  // Verwende window.location.origin für korrekte URL-Generierung
+  // Prüfe zuerst auf Environment-Variable (für Docker/Production)
+  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envApiUrl) {
+    return envApiUrl;
+  }
+
+  // Fallback: Verwende window.location.origin für lokale Entwicklung
   return window.location.origin;
 };
 
