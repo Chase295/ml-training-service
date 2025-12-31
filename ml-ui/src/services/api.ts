@@ -19,10 +19,15 @@ import type {
   ConfigUpdateResponse,
 } from '../types/api';
 
-// API Base URL - GENAU WIE PUMP-FIND: Immer window.location.origin!
-// pump-find setzt VITE_API_BASE_URL im Dockerfile, aber verwendet es NIE!
-// Das ist der Schlüssel zum Erfolg in Coolify!
+// API Base URL - Direkte Backend-Verbindung für Coolify
 const getApiBaseUrl = (): string => {
+  // In Produktion: Verwende direkte Backend-URL
+  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envApiUrl) {
+    return envApiUrl;
+  }
+
+  // Fallback für lokale Entwicklung
   return window.location.origin;
 };
 
