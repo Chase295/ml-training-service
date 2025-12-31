@@ -27,8 +27,9 @@ const getApiBaseUrl = (): string => {
     return envApiUrl;
   }
 
-  // Fallback: Verwende window.location.origin für lokale Entwicklung
-  return window.location.origin;
+  // Entwicklung: Verwende immer das gleiche Origin für Vite-Proxy
+  // Das ermöglicht es dem Vite-Proxy, die /api Aufrufe abzufangen
+  return '';
 };
 
 // API_BASE_URL wird dynamisch zur Laufzeit berechnet
