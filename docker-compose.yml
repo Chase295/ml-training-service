@@ -25,7 +25,7 @@ services:
     container_name: ml-service
     restart: unless-stopped
     ports:
-      - "8000:8000"  # Extern verfügbar für Entwicklung
+      - "8001:8000"  # Extern verfügbar für Entwicklung (Port 8001)
     expose:
       - "8000"  # Intern für ml-ui verfügbar
     environment:
