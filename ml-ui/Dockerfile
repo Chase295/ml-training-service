@@ -17,7 +17,7 @@ RUN rm -f package-lock.json && npm install --include=dev
 # Source Code kopieren
 COPY . .
 
-# Build der App (überspringe TSC bei Build-Fehlern)
+# Build der App - nur Vite (TSC macht Probleme)
 RUN ./node_modules/.bin/vite build
 
 # Nginx für Serving der statischen Files

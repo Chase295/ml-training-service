@@ -73,7 +73,7 @@ const Info: React.FC = () => {
           </Box>
 
           <Grid container spacing={3}>
-            <Grid xs={12} md={4}>
+            <Grid item xs={12} md={4}>
               <Card sx={{ bgcolor: 'rgba(76, 175, 80, 0.1)', border: '1px solid rgba(76, 175, 80, 0.3)' }}>
                 <CardContent>
                   <Box textAlign="center">
@@ -88,7 +88,7 @@ const Info: React.FC = () => {
               </Card>
             </Grid>
 
-            <Grid xs={12} md={4}>
+            <Grid item xs={12} md={4}>
               <Card sx={{ bgcolor: 'rgba(255, 152, 0, 0.1)', border: '1px solid rgba(255, 152, 0, 0.3)' }}>
                 <CardContent>
                   <Box textAlign="center">
@@ -103,7 +103,7 @@ const Info: React.FC = () => {
               </Card>
             </Grid>
 
-            <Grid xs={12} md={4}>
+            <Grid item xs={12} md={4}>
               <Card sx={{ bgcolor: 'rgba(156, 39, 176, 0.1)', border: '1px solid rgba(156, 39, 176, 0.3)' }}>
                 <CardContent>
                   <Box textAlign="center">
