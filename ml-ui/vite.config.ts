@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0', // Auf allen Netzwerk-Interfaces lauschen für externen Zugriff
     port: 3002,
-    allowedHosts: ['localhost', '127.0.0.1'], // Erlaubte Hosts für externen Zugriff
+    // allowedHosts: undefined bedeutet alle Hosts sind erlaubt
     proxy: {
       '/api': {
         target: 'http://localhost:8002',
