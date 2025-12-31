@@ -7,8 +7,7 @@ services:
     container_name: ml-ui
     restart: unless-stopped
     ports:
-      - "3001:80"  # Docker-Version: UI + API über Reverse Proxy
-      - "3002:80"  # Alternative: Gleicher Container auf Port 3002
+      - "3002:80"  # UI + API über Reverse Proxy auf Port 3002
     depends_on:
       - ml-service
     networks:
