@@ -11,7 +11,8 @@ from fastapi.responses import FileResponse
 from app.api.schemas import (
     SimpleTrainModelRequest, TrainModelRequest, TestModelRequest, CompareModelsRequest, UpdateModelRequest,
     ModelResponse, TestResultResponse, ComparisonResponse,
-    JobResponse, CreateJobResponse, HealthResponse
+    JobResponse, CreateJobResponse, HealthResponse,
+    ConfigResponse, ConfigUpdateRequest, ConfigUpdateResponse
 )
 from app.database.models import (
     create_model, get_model, update_model, list_models, delete_model,
@@ -251,7 +252,12 @@ async def list_models_endpoint(
 ):
     """Listet alle Modelle (mit optionalen Filtern)"""
     try:
-        models = await list_models(status=status, is_deleted=is_deleted)
+        try:
+            models = await list_models(status=status, is_deleted=is_deleted)
+        except Exception as db_error:
+            logger.warning(f"⚠️ Datenbank nicht verfügbar für Models: {db_error}")
+            logger.info("ℹ️ Rückgabe leerer Model-Liste im eingeschränkten Modus")
+            return []
         # Konvertiere JSONB-Felder und extrahiere Confusion Matrix Werte für Legacy-Felder
         result = []
         for model in models:
@@ -478,7 +484,13 @@ async def list_jobs_endpoint(
 ):
     """Listet alle Jobs (mit optionalen Filtern)"""
     try:
-        jobs = await list_jobs(status=status, job_type=job_type)
+        # Im eingeschränkten Modus (DB nicht verfügbar) leere Liste zurückgeben
+        try:
+            jobs = await list_jobs(status=status, job_type=job_type)
+        except Exception as db_error:
+            logger.warning(f"⚠️ Datenbank nicht verfügbar für Jobs: {db_error}")
+            logger.info("ℹ️ Rückgabe leerer Job-Liste im eingeschränkten Modus")
+            return []
         converted_jobs = []
         for job in jobs:
             job_dict = dict(job)
@@ -613,6 +625,59 @@ async def metrics_endpoint():
         logger.error(f"❌ Fehler beim Generieren der Metrics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ============================================================
+# Configuration Endpoints
+# ============================================================
+
+@router.get("/config", response_model=ConfigResponse)
+async def get_config():
+    """
+    Gibt die aktuelle Konfiguration zurück
+    """
+    try:
+        from app.utils.config import get_config_dict
+        return ConfigResponse(**get_config_dict())
+    except Exception as e:
+        logger.error(f"❌ Fehler beim Laden der Konfiguration: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Fehler beim Laden der Konfiguration: {str(e)}"
+        )
+
+@router.put("/config", response_model=ConfigUpdateResponse)
+async def update_config(request: ConfigUpdateRequest):
+    """
+    Aktualisiert die Konfiguration zur Laufzeit
+    """
+    from app.utils.config import update_config_from_dict
+
+    # Filtere None-Werte heraus
+    update_data = {k: v for k, v in request.model_dump().items() if v is not None}
+
+    if not update_data:
+        raise HTTPException(
+            status_code=400,
+            detail="Keine gültigen Konfigurationswerte zum Aktualisieren angegeben"
+        )
+
+    try:
+        # Aktualisiere die Config
+        update_config_from_dict(update_data)
+
+        logger.info(f"🔧 Konfiguration aktualisiert: {list(update_data.keys())}")
+
+        return ConfigUpdateResponse(
+            message="Konfiguration erfolgreich aktualisiert",
+            status="success",
+            updated_fields=list(update_data.keys())
+        )
+    except Exception as e:
+        logger.error(f"❌ Fehler beim Aktualisieren der Konfiguration: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Fehler beim Aktualisieren der Konfiguration: {str(e)}"
+        )
+
 @router.post("/reload-config")
 async def reload_config_endpoint():
     """
@@ -620,13 +685,12 @@ async def reload_config_endpoint():
     Liest .env Datei neu und aktualisiert Config
     """
     try:
-        # Lade Config neu
-        from app.utils.config import DB_DSN, API_PORT, STREAMLIT_PORT, MODEL_STORAGE_PATH, API_BASE_URL, JOB_POLL_INTERVAL, MAX_CONCURRENT_JOBS, LOG_LEVEL, LOG_FORMAT, LOG_JSON_INDENT
-        
-        # Config wird beim nächsten Zugriff automatisch neu geladen
-        # (da os.getenv() verwendet wird)
-        logger.info("🔄 Konfiguration wird neu geladen...")
-        
+        # Lade Config neu aus Environment
+        from app.utils.config import reload_config_from_env
+        reload_config_from_env()
+
+        logger.info("🔄 Konfiguration wurde neu geladen")
+
         return {
             "message": "Konfiguration wurde neu geladen",
             "status": "success"
@@ -634,6 +698,81 @@ async def reload_config_endpoint():
     except Exception as e:
         logger.error(f"❌ Fehler beim Neuladen der Konfiguration: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/reconnect-db")
+async def reconnect_db_endpoint():
+    """
+    Lädt Konfiguration neu und baut DB-Verbindung mit neuer Konfiguration neu auf
+    """
+    try:
+        from app.database.connection import close_pool, get_pool
+        from app.utils.metrics import get_health_status
+        from app.utils.config import reload_config_from_env
+
+        # Konfiguration ist bereits durch updateConfig aktualisiert worden
+        # Verwende runtime config oder fallback zu env
+        from app.utils.config import get_runtime_config, DB_DSN
+        current_dsn = get_runtime_config('db_dsn', DB_DSN)
+        logger.info(f"🔄 Verwende DB_DSN: {current_dsn}")
+
+        # Temporär die globale Variable überschreiben für diesen Request
+        import app.utils.config
+        original_dsn = app.utils.config.DB_DSN
+        app.utils.config.DB_DSN = current_dsn
+
+        # Schließe bestehende Verbindung
+        await close_pool()
+        logger.info("🔌 Bestehende DB-Verbindung geschlossen")
+
+        # Setze Pool zurück (damit neue Konfiguration verwendet wird)
+        import app.database.connection
+        app.database.connection.pool = None
+
+        # Versuche neue Verbindung aufzubauen
+        try:
+            await get_pool()  # Erstellt automatisch neuen Pool mit neuer Konfiguration
+            logger.info("✅ Neue DB-Verbindung erfolgreich aufgebaut")
+
+            # Teste die Verbindung
+            health = await get_health_status()
+
+            # Setze DB_AVAILABLE Flag
+            import app.main
+            app.main.DB_AVAILABLE = health["db_connected"]
+
+            # Stelle originale DSN wieder her (aber behalte die funktionierende Verbindung)
+            app.utils.config.DB_DSN = original_dsn
+
+            return {
+                "message": "Datenbankverbindung erfolgreich neu aufgebaut",
+                "status": "success",
+                "db_connected": health["db_connected"],
+                "health_status": health["status"]
+            }
+
+        except Exception as db_error:
+            logger.error(f"❌ Neue DB-Verbindung fehlgeschlagen: {db_error}")
+
+            # Stelle eingeschränkten Modus wieder her
+            import app.main
+            app.main.DB_AVAILABLE = False
+
+            # Stelle originale DSN wieder her
+            app.utils.config.DB_DSN = original_dsn
+
+            return {
+                "message": f"DB-Verbindung fehlgeschlagen: {str(db_error)}",
+                "status": "error",
+                "db_connected": False,
+                "health_status": "degraded"
+            }
+
+    except Exception as e:
+        logger.error(f"❌ Fehler beim DB-Reconnect: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Fehler beim DB-Reconnect: {str(e)}"
+        )
 
 @router.get("/phases")
 async def get_phases_endpoint():

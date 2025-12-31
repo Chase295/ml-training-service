@@ -1,36 +1,62 @@
+version: '3.8'
 services:
-  ml-training:
-    build: .
-    container_name: ml-training-service
+  ml-ui:
+    build:
+      context: ./ml-ui
+      dockerfile: Dockerfile
+    container_name: ml-ui
+    restart: unless-stopped
     ports:
-      - "8012:8000"  # FastAPI (Health + Metrics + API) - extern: 8012, intern: 8000
-      - "8502:8501"  # Streamlit UI - extern: 8502, intern: 8501
+      - "3001:80"  # EINZIGER externer Port - UI + API über Reverse Proxy
+    depends_on:
+      - ml-service
+    networks:
+      - ml-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Vereinter ML-Service (extern verfügbar für Entwicklung)
+  ml-service:
+    build: .
+    container_name: ml-service
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # Extern verfügbar für Entwicklung
+    expose:
+      - "8000"  # Intern für ml-ui verfügbar
     environment:
-      # ⚠️ EXTERNE Datenbank (nicht im Docker-Compose!)
-      # Beispiel: postgresql://postgres:password@100.118.155.75:5432/crypto
+      # Datenbank (bleibt gleich)
       - DB_DSN=${DB_DSN:-postgresql://postgres:9HVxi6hN6j7xpmqUx84o@100.118.155.75:5432/beta}
-      - API_PORT=8000  # Interner Port (bleibt gleich)
-      - STREAMLIT_PORT=8501  # Interner Port (bleibt gleich)
+      
+      # API-Konfiguration
+      - API_PORT=8000
       - MODEL_STORAGE_PATH=/app/models
-      - API_BASE_URL=http://localhost:8000  # Interner Port (Container-intern)
+      
+      # Job-Management (bleibt gleich)
       - JOB_POLL_INTERVAL=5
       - MAX_CONCURRENT_JOBS=2
     volumes:
-      # Persistente Modell-Speicherung
       - ./models:/app/models
+      - ./config:/app/config:rw
+    networks:
+      - ml-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
-    # ⚠️ RAM-Management: Setze Limits in Production!
-    # deploy:
-    #   resources:
-    #     limits:
-    #       memory: 8G  # Max 8GB RAM
-    #     reservations:
-    #       memory: 4G  # Min 4GB RAM
-    # Keine network-Konfiguration nötig - DB ist extern!
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
+networks:
+  ml-network:
+    driver: bridge
+
+volumes:
+  ml-models:
+    driver: local
+  ml-config:
+    driver: local

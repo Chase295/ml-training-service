@@ -503,3 +503,41 @@ class HealthResponse(BaseModel):
     total_jobs_processed: int
     last_error: Optional[str]
 
+# ============================================================
+# Configuration Schemas
+# ============================================================
+
+class ConfigResponse(BaseModel):
+    """Response für Konfigurationsdaten"""
+    # Database
+    db_dsn: str
+    db_refresh_interval: int
+
+    # ML Training
+    model_storage_path: str
+    max_concurrent_jobs: int
+    job_poll_interval: int
+    default_training_hours: int
+    max_training_hours: int
+    min_training_hours: int
+
+class ConfigUpdateRequest(BaseModel):
+    """Request für Konfigurations-Update"""
+    # Database
+    db_dsn: Optional[str] = None
+    db_refresh_interval: Optional[int] = None
+
+    # ML Training
+    model_storage_path: Optional[str] = None
+    max_concurrent_jobs: Optional[int] = None
+    job_poll_interval: Optional[int] = None
+    default_training_hours: Optional[int] = None
+    max_training_hours: Optional[int] = None
+    min_training_hours: Optional[int] = None
+
+class ConfigUpdateResponse(BaseModel):
+    """Response für Konfigurations-Update"""
+    message: str
+    status: str
+    updated_fields: List[str]
+

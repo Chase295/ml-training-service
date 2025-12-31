@@ -116,24 +116,30 @@ async def get_health_status() -> Dict[str, Any]:
     Returns: {"status": "healthy"/"degraded", "db_connected": bool, ...}
     """
     try:
-        # Prüfe DB-Verbindung
-        db_connected = await test_connection()
+        # Prüfe DB-Verbindung (mit Timeout, um nicht zu lange zu warten)
+        db_connected = False
+        try:
+            db_connected = await test_connection()
+        except Exception as db_error:
+            logger.warning(f"⚠️ Datenbank nicht verfügbar: {db_error}")
+            db_connected = False
+
         health_status["db_connected"] = db_connected
         ml_db_connected.set(1 if db_connected else 0)
-        
+
         # Berechne Uptime
         if health_status["start_time"]:
             uptime = time.time() - health_status["start_time"]
             ml_service_uptime_seconds.set(uptime)
         else:
             uptime = 0
-        
+
         # Bestimme Gesamt-Status
         if db_connected:
             status = "healthy"
         else:
             status = "degraded"
-        
+
         return {
             "status": status,
             "db_connected": db_connected,

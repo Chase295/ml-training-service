@@ -1,0 +1,115 @@
+import React, { useEffect, useState } from 'react'
+import {
+  Container, Typography, Paper, FormControl, InputLabel,
+  Select, MenuItem, Button, Box, Grid, Card, CardContent
+} from '@mui/material'
+import { useMLStore } from '../stores/mlStore'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+
+const Compare: React.FC = () => {
+  const { models } = useMLStore()
+  const [selectedModels, setSelectedModels] = useState<number[]>([])
+  const [comparisonData, setComparisonData] = useState<any>(null)
+
+  const handleModelSelect = (modelId: number) => {
+    setSelectedModels(prev =>
+      prev.includes(modelId)
+        ? prev.filter(id => id !== modelId)
+        : [...prev, modelId]
+    )
+  }
+
+  const handleCompare = () => {
+    // Mock comparison data - ersetze mit echter API
+    const mockData = [
+      { metric: 'Accuracy', model1: 0.85, model2: 0.82 },
+      { metric: 'Precision', model1: 0.88, model2: 0.79 },
+      { metric: 'Recall', model1: 0.82, model2: 0.85 },
+      { metric: 'F1-Score', model1: 0.85, model2: 0.82 }
+    ]
+    setComparisonData(mockData)
+  }
+
+  return (
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Typography variant="h4" gutterBottom>
+        Modell Vergleich
+      </Typography>
+
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          Modelle auswählen:
+        </Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+          {models.map((model) => (
+            <Button
+              key={model.id}
+              variant={selectedModels.includes(model.id) ? 'contained' : 'outlined'}
+              size="small"
+              onClick={() => handleModelSelect(model.id)}
+            >
+              {model.name || model.id.slice(0, 8)}
+            </Button>
+          ))}
+        </Box>
+        <Button 
+          variant="contained" 
+          onClick={handleCompare}
+          disabled={selectedModels.length < 2}
+        >
+          Vergleichen ({selectedModels.length} Modelle)
+        </Button>
+      </Paper>
+
+      {comparisonData && (
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <Paper sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Metriken Vergleich
+              </Typography>
+              <ResponsiveContainer width="100%" height={400}>
+                <LineChart data={comparisonData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="metric" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="model1" stroke="#8884d8" name="Modell 1" />
+                  <Line type="monotone" dataKey="model2" stroke="#82ca9d" name="Modell 2" />
+                </LineChart>
+              </ResponsiveContainer>
+            </Paper>
+          </Grid>
+
+          <Grid item xs={12}>
+            <Paper sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Detaillierte Metriken
+              </Typography>
+              {comparisonData.map((item: any) => (
+                <Card key={item.metric} sx={{ mb: 1 }}>
+                  <CardContent sx={{ py: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography>{item.metric}</Typography>
+                      <Box>
+                        <Typography component="span" sx={{ mr: 2 }}>
+                          Modell 1: {(item.model1 * 100).toFixed(1)}%
+                        </Typography>
+                        <Typography component="span">
+                          Modell 2: {(item.model2 * 100).toFixed(1)}%
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              ))}
+            </Paper>
+          </Grid>
+        </Grid>
+      )}
+    </Container>
+  )
+}
+
+export default Compare

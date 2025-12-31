@@ -65,3 +65,9 @@ htmlcov/
 *.tmp
 *.temp
 
+# Legacy/Archive directories (Pump Discovery related)
+reverens UI/
+vorherige services/
+ml-ui-template/
+archive/
+

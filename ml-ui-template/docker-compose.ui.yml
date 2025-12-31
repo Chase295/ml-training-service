@@ -1,0 +1,88 @@
+version: '3.8'
+services:
+  pump-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pump-ui
+    restart: unless-stopped
+    environment:
+      # API Base URL zum vereinten Service (von außen erreichbar)
+      - VITE_API_BASE_URL=http://localhost:8000
+    ports:
+      - "3000:80"  # UI auf Port 3000
+    depends_on:
+      - pump-service
+    networks:
+      - pump-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Vereinter Pump-Service
+  pump-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile.unified
+    container_name: pump-service
+    restart: unless-stopped
+    environment:
+      # Datenbank
+      - DB_DSN=postgresql://postgres:9HVxi6hN6j7xpmqUx84o@100.118.155.75:5432/crypto
+
+      # WebSocket
+      - WS_URI=wss://pumpportal.fun/api/data
+      - WS_RETRY_DELAY=3
+      - WS_MAX_RETRY_DELAY=60
+      - WS_PING_INTERVAL=20
+      - WS_PING_TIMEOUT=10
+      - WS_CONNECTION_TIMEOUT=30
+
+      # Discovery (aus pump-discover)
+      - N8N_WEBHOOK_URL=https://n8n-ai.chase295.de/webhook/pump-discover-beta
+      - N8N_WEBHOOK_METHOD=POST
+      - N8N_RETRY_DELAY=5
+      - BATCH_SIZE=10
+      - BATCH_TIMEOUT=30
+      - BAD_NAMES_PATTERN=test|bot|rug|scam|cant|honey|faucet
+
+      # Cache-System (NEU)
+      - COIN_CACHE_SECONDS=120
+
+      # Datenbank-Refresh
+      - DB_REFRESH_INTERVAL=10
+      - DB_RETRY_DELAY=5
+
+      # Metric-System (aus pump-metric)
+      - SOL_RESERVES_FULL=85.0
+      - AGE_CALCULATION_OFFSET_MIN=60
+      - TRADE_BUFFER_SECONDS=180
+      - WHALE_THRESHOLD_SOL=1.0
+      - ATH_FLUSH_INTERVAL=5
+
+      # Health-Server
+      - HEALTH_PORT=8000
+
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../config:/app/config:rw
+    networks:
+      - pump-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  pump-network:
+    driver: bridge
+
+volumes:
+  pump-config:
+    driver: local

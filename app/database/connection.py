@@ -7,7 +7,7 @@ Die Datenbank ist EXTERN und wird über DB_DSN konfiguriert.
 import asyncpg
 import logging
 from typing import Optional
-from app.utils.config import DB_DSN
+from app.utils.config import DB_DSN, get_runtime_config
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -37,10 +37,13 @@ async def get_pool() -> asyncpg.Pool:
     global pool
     if pool is None:
         try:
+            # Verwende runtime config oder fallback zu DB_DSN
+            current_dsn = get_runtime_config('db_dsn', DB_DSN)
+
             # DB_DSN enthält externe DB-Adresse, z.B.:
             # postgresql://user:pass@100.118.155.75:5432/crypto
             pool = await asyncpg.create_pool(
-                DB_DSN,
+                current_dsn,
                 min_size=1,
                 max_size=10,
                 command_timeout=60

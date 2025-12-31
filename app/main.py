@@ -61,20 +61,23 @@ async def startup():
     """Startup Event: Initialisiert DB-Pool, Health Status, Worker"""
     logger.info("🚀 Starte ML Training Service...")
     
+    db_available = False
+
     try:
         # DB-Pool erstellen
         await get_pool()  # Initialisiert Pool
         logger.info("✅ Datenbank-Pool erstellt")
-        
+        db_available = True
+
         # Health Status initialisieren
         init_health_status()
         logger.info("✅ Health Status initialisiert")
-        
+
         # Starte Job Worker
         from app.queue.job_manager import start_worker
         asyncio.create_task(start_worker())
         logger.info("✅ Job Worker gestartet")
-        
+
         # Starte Background-Task für Job-Metriken (alle 5 Sekunden)
         from app.utils.metrics import update_all_job_metrics
         async def metrics_updater():
@@ -86,14 +89,18 @@ async def startup():
                 except Exception as e:
                     logger.error(f"Fehler beim Aktualisieren der Job-Metriken: {e}", exc_info=True)
                     await asyncio.sleep(5)
-        
+
         asyncio.create_task(metrics_updater())
         logger.info("✅ Job-Metriken-Updater gestartet (alle 5 Sekunden)")
-        
+
         logger.info("✅ Service gestartet: DB verbunden, Worker läuft, Metriken-Updater aktiv")
+
     except Exception as e:
-        logger.error(f"❌ Fehler beim Startup: {e}")
-        raise
+        logger.warning(f"⚠️ Datenbank nicht verfügbar: {e}")
+        logger.info("ℹ️ Starte Service im eingeschränkten Modus (nur Config-API verfügbar)")
+        # Setze globale Variable für eingeschränkten Modus
+        import app.main
+        app.main.DB_AVAILABLE = False
 
 @app.on_event("shutdown")
 async def shutdown():
