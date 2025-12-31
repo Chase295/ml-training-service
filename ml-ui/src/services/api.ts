@@ -27,9 +27,13 @@ const getApiBaseUrl = (): string => {
     return envApiUrl;
   }
 
-  // Entwicklung: Verwende immer das gleiche Origin für Vite-Proxy
-  // Das ermöglicht es dem Vite-Proxy, die /api Aufrufe abzufangen
-  return '';
+  // Entwicklung: Verwende leeren String für Vite-Proxy
+  // Production (Docker): Verwende window.location.origin für nginx proxy
+  if (import.meta.env.DEV) {
+    return ''; // Vite proxy abfangen
+  } else {
+    return window.location.origin; // nginx proxy weiterleiten
+  }
 };
 
 // API_BASE_URL wird dynamisch zur Laufzeit berechnet
