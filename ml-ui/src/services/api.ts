@@ -19,22 +19,11 @@ import type {
   ConfigUpdateResponse,
 } from '../types/api';
 
-// API Base URL - Robuste Lösung für verschiedene Umgebungen
+// API Base URL - GENAU WIE PUMP-FIND: Immer window.location.origin!
+// pump-find setzt VITE_API_BASE_URL im Dockerfile, aber verwendet es NIE!
+// Das ist der Schlüssel zum Erfolg in Coolify!
 const getApiBaseUrl = (): string => {
-  // 1. Explizite Environment-Variable (z.B. aus Dockerfile)
-  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envApiUrl && envApiUrl !== 'http://localhost:8000') {
-    // Verwende die gesetzte URL (außer dem Standard localhost)
-    return envApiUrl;
-  }
-
-  // 2. Entwicklung: Vite proxy verwenden
-  if (import.meta.env.DEV) {
-    return ''; // Vite proxy fängt /api/* ab
-  }
-
-  // 3. Production: nginx proxy verwenden (wie pump-find)
-  return window.location.origin; // nginx fängt /api/* ab
+  return window.location.origin;
 };
 
 // API_BASE_URL wird dynamisch zur Laufzeit berechnet
