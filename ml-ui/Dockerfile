@@ -23,12 +23,8 @@ RUN ./node_modules/.bin/vite build
 # Nginx für Serving der statischen Files
 FROM nginx:alpine
 
-# Nginx Konfiguration - generiere zur Laufzeit mit Environment-Variablen
-COPY nginx.conf /etc/nginx/nginx.conf.template
-
-# Entrypoint Script für dynamische Konfiguration
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+# Nginx Konfiguration - hardcoded wie pump-find
+COPY nginx.conf /etc/nginx/nginx.conf
 
 # Gebaute App kopieren
 COPY --from=0 /app/dist /usr/share/nginx/html
@@ -40,7 +36,7 @@ EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost/health || exit 1
 
-# Start über Entrypoint
-ENTRYPOINT ["/docker-entrypoint.sh"]
+# Start Nginx
+CMD ["nginx", "-g", "daemon off;"]
 
 

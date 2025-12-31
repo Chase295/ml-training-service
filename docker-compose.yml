@@ -10,9 +10,7 @@ services:
       - "3002:80"  # UI + API über Reverse Proxy auf Port 3002
     depends_on:
       - ml-service
-    environment:
-      # Backend URL für nginx upstream - kann in Coolify überschrieben werden
-      - BACKEND_URL=${BACKEND_URL:-ml-service:8000}
+    # Keine Environment-Variablen nötig - hardcoded wie pump-find
     networks:
       - ml-network
     healthcheck:
