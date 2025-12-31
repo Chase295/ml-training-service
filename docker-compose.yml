@@ -20,13 +20,12 @@ services:
       retries: 3
       start_period: 10s
 
-  # Vereinter ML-Service (extern verfügbar für Entwicklung)
+  # Vereinter ML-Service (NUR INTERN verfügbar wie pump-service in pump-find)
   ml-service:
     build: .
     container_name: ml-service
     restart: unless-stopped
-    ports:
-      - "8001:8000"  # Extern verfügbar für Entwicklung (Port 8001)
+    # KEINE externen ports - nur über Reverse Proxy zugänglich (wie pump-find)
     expose:
       - "8000"  # Intern für ml-ui verfügbar
     environment:
