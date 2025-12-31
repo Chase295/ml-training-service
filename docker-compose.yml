@@ -4,13 +4,14 @@ services:
     build:
       context: ./ml-ui
       dockerfile: Dockerfile
+      # Keine VITE_API_BASE_URL für Produktion - dynamische Ermittlung
     container_name: ml-ui
     restart: unless-stopped
+    # Keine Environment-Variablen - API-URL wird dynamisch ermittelt
     ports:
-      - "3002:80"  # UI + API über Reverse Proxy auf Port 3002
+      - "3002:80"  # EINZIGER externer Port - UI + API über Reverse Proxy
     depends_on:
       - ml-service
-    # Keine Environment-Variablen nötig - hardcoded wie pump-find
     networks:
       - ml-network
     healthcheck:
@@ -20,25 +21,29 @@ services:
       retries: 3
       start_period: 10s
 
-  # Vereinter ML-Service (NUR INTERN verfügbar wie pump-service in pump-find)
+  # Vereinter ML-Service (nur intern verfügbar)
   ml-service:
     build: .
     container_name: ml-service
     restart: unless-stopped
-    # KEINE externen ports - nur über Reverse Proxy zugänglich (wie pump-find)
+    # KEINE exposed ports - nur über Reverse Proxy zugänglich
     expose:
       - "8000"  # Intern für ml-ui verfügbar
     environment:
       # Datenbank (bleibt gleich)
       - DB_DSN=${DB_DSN:-postgresql://postgres:9HVxi6hN6j7xpmqUx84o@100.118.155.75:5432/beta}
-      
+
       # API-Konfiguration
       - API_PORT=8000
       - MODEL_STORAGE_PATH=/app/models
-      
+
       # Job-Management (bleibt gleich)
       - JOB_POLL_INTERVAL=5
       - MAX_CONCURRENT_JOBS=2
+
+      # Health-Server (wie pump-find)
+      - HEALTH_PORT=8001
+
     volumes:
       - ./models:/app/models
       - ./config:/app/config:rw
@@ -56,7 +61,5 @@ networks:
     driver: bridge
 
 volumes:
-  ml-models:
-    driver: local
   ml-config:
     driver: local

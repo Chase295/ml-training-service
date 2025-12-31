@@ -6,8 +6,8 @@ WORKDIR /app
 # Environment für Vite
 ENV NODE_ENV=production
 
-# API Base URL als Build-Argument - Standard für Coolify
-ARG VITE_API_BASE_URL=http://ml-service:8000
+# API Base URL als Build-Argument
+ARG VITE_API_BASE_URL=http://localhost:8000
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 # Dependencies installieren (inkl. devDependencies für Build)
@@ -17,13 +17,13 @@ RUN rm -f package-lock.json && npm install --include=dev
 # Source Code kopieren
 COPY . .
 
-# Build der App - nur Vite (TSC macht Probleme)
+# Build der App
 RUN ./node_modules/.bin/vite build
 
 # Nginx für Serving der statischen Files
 FROM nginx:alpine
 
-# Nginx Konfiguration - hardcoded wie pump-find
+# Nginx Konfiguration
 COPY nginx.conf /etc/nginx/nginx.conf
 
 # Gebaute App kopieren

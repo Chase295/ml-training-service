@@ -19,15 +19,10 @@ import type {
   ConfigUpdateResponse,
 } from '../types/api';
 
-// API Base URL - Direkte Backend-Verbindung für Coolify
+// API Base URL - immer HTTP für interne Kommunikation
 const getApiBaseUrl = (): string => {
-  // In Produktion: Verwende direkte Backend-URL
-  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envApiUrl) {
-    return envApiUrl;
-  }
-
-  // Fallback für lokale Entwicklung
+  // Verwende window.location.origin für korrekte URL-Generierung
+  // Das gibt das komplette Origin zurück (protocol + host + port)
   return window.location.origin;
 };
 
