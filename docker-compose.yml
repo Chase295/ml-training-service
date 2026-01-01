@@ -21,12 +21,13 @@ services:
       retries: 3
       start_period: 10s
 
-  # Vereinter ML-Service (nur intern verfügbar)
+  # Vereinter ML-Service (intern + extern verfügbar)
   ml-service:
     build: .
     container_name: ml-service
     restart: unless-stopped
-    # KEINE externen ports - nur über Reverse Proxy zugänglich
+    ports:
+      - "8001:8000"  # Extern verfügbar für direkten API-Zugriff
     expose:
       - "8000"  # Intern für ml-ui verfügbar
     environment:

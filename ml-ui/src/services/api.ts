@@ -19,10 +19,15 @@ import type {
   ConfigUpdateResponse,
 } from '../types/api';
 
-// API Base URL - immer HTTP für interne Kommunikation
+// API Base URL - flexibel für verschiedene Setups
 const getApiBaseUrl = (): string => {
-  // Verwende window.location.origin für korrekte URL-Generierung
-  // Das gibt das komplette Origin zurück (protocol + host + port)
+  // Verwende VITE_API_BASE_URL wenn gesetzt (z.B. für externen API-Port)
+  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envApiUrl && envApiUrl !== 'http://localhost:8000') {
+    return envApiUrl; // Direkt zur externen API
+  }
+
+  // Standard: window.location.origin für nginx proxy
   return window.location.origin;
 };
 
