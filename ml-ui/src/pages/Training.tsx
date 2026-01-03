@@ -40,6 +40,50 @@ import { TrainModelRequest, SimpleTrainModelRequest } from '../types/api';
 
 const steps = ['Basis-Konfiguration', 'Ziel-Definition', 'Features & Engineering', 'Erweiterte Optionen'];
 
+// Feature-Kategorien für den FeatureSelector
+const featureCategories = [
+  {
+    name: '📈 Preis-Daten',
+    features: [
+      { id: 'price_open', label: 'Eröffnungspreis', description: 'Preis zu Handelsbeginn' },
+      { id: 'price_high', label: 'Höchstpreis', description: 'Maximaler Preis im Zeitraum' },
+      { id: 'price_low', label: 'Tiefstpreis', description: 'Minimaler Preis im Zeitraum' },
+      { id: 'price_close', label: 'Schlusskurs', description: 'Preis zu Handelsende' },
+    ],
+  },
+  {
+    name: '📊 Preis-Änderungen',
+    features: [
+      { id: 'price_change_1h', label: '1h Preisänderung', description: 'Preisänderung letzte Stunde' },
+      { id: 'price_change_24h', label: '24h Preisänderung', description: 'Preisänderung letzte 24h' },
+      { id: 'price_change_7d', label: '7d Preisänderung', description: 'Preisänderung letzte Woche' },
+    ],
+  },
+  {
+    name: '🏛️ Market Cap',
+    features: [
+      { id: 'market_cap_open', label: 'Market Cap Eröffnung', description: 'Marktkapitalisierung Eröffnung' },
+      { id: 'market_cap_close', label: 'Market Cap Schluss', description: 'Marktkapitalisierung Schluss' },
+    ],
+  },
+  {
+    name: '💰 Handelsvolumen',
+    features: [
+      { id: 'volume_sol', label: 'SOL Volumen', description: 'Handelsvolumen in SOL' },
+      { id: 'volume_usd', label: 'USD Volumen', description: 'Handelsvolumen in USD' },
+    ],
+  },
+  {
+    name: '🎯 Technische Indikatoren',
+    features: [
+      { id: 'rsi_14', label: 'RSI 14', description: 'Relative Strength Index' },
+      { id: 'macd', label: 'MACD', description: 'Moving Average Convergence Divergence' },
+      { id: 'bollinger_upper', label: 'Bollinger Oberband', description: 'Oberes Bollinger Band' },
+      { id: 'bollinger_lower', label: 'Bollinger Unterband', description: 'Unteres Bollinger Band' },
+    ],
+  },
+];
+
 const Training: React.FC = () => {
   const {
     createSimpleModel,
@@ -57,8 +101,8 @@ const Training: React.FC = () => {
   const [formData, setFormData] = useState<Partial<TrainModelRequest>>({
     name: '',
     model_type: 'xgboost',
+    features: ['auto'], // Default: auto features
     use_time_based_prediction: false,
-    features: ['price_open', 'price_high', 'price_low', 'price_close', 'volume_sol', 'market_cap_close'],
     train_start: undefined,
     train_end: undefined,
     description: '',
@@ -126,7 +170,7 @@ const Training: React.FC = () => {
           name: formData.name!,
           model_type: formData.model_type!,
           target: `${formData.target_var} ${formData.operator} ${formData.target_value}`,
-          features: formData.features!,
+          features: Array.isArray(formData.features) ? formData.features : [formData.features || 'auto'],
           train_start: formData.train_start!,
           train_end: formData.train_end!,
           description: formData.description,
@@ -175,13 +219,13 @@ const Training: React.FC = () => {
   const renderStepContent = (step: number) => {
     switch (step) {
       case 0: // Basis-Konfiguration
-        return (
+  return (
           <Box sx={{ mt: 3 }}>
             <Typography variant="h6" gutterBottom sx={{ color: '#00d4ff', display: 'flex', alignItems: 'center', gap: 1 }}>
               <SettingsIcon /> Basis-Konfiguration
-            </Typography>
+      </Typography>
 
-            <Grid container spacing={3}>
+          <Grid container spacing={3}>
               <Grid xs={12} md={6}>
                 <ValidatedTextField
                   label="Modell-Name"
@@ -269,15 +313,15 @@ const Training: React.FC = () => {
                       onChange={(value) => handleFieldChange('future_minutes', parseInt(value) || 15)}
                       type="number"
                       helperText="Zeitraum für die Vorhersage (z.B. 15 Minuten)"
-                    />
-                  </Grid>
+              />
+            </Grid>
 
                   <Grid xs={12} md={4}>
                     <ValidatedTextField
                       label="Mindest-Änderung (%)"
                       value={formData.min_percent_change?.toString() || '5.0'}
                       onChange={(value) => handleFieldChange('min_percent_change', parseFloat(value) || 0.05)}
-                      type="number"
+                type="number"
                       step="0.01"
                       helperText="Prozentuale Änderung (z.B. 5.0 für 5%)"
                     />
@@ -336,16 +380,16 @@ const Training: React.FC = () => {
                         { value: '=', label: 'gleich' },
                       ]}
                       required
-                    />
-                  </Grid>
+              />
+            </Grid>
 
                   <Grid xs={12} md={4}>
                     <ValidatedTextField
                       label="Schwellwert"
                       value={formData.target_value?.toString() || ''}
                       onChange={(value) => handleFieldChange('target_value', parseFloat(value) || 0)}
-                      type="number"
-                      step="0.01"
+                type="number"
+                step="0.01"
                       required
                       helperText="Zahlenwert für die Regel (z.B. 0.05 für 5%)"
                     />
@@ -527,11 +571,11 @@ const Training: React.FC = () => {
                       label="N Estimators"
                       value={formData.params?.n_estimators?.toString() || ''}
                       onChange={(value) => handleFieldChange('params', { ...formData.params, n_estimators: parseInt(value) || 100 })}
-                      type="number"
+                type="number"
                       helperText="Anzahl Bäume (50-500, Default: 100)"
-                    />
-                  </Grid>
-                </Grid>
+              />
+            </Grid>
+          </Grid>
               </AccordionDetails>
             </Accordion>
           </Box>
@@ -582,7 +626,7 @@ const Training: React.FC = () => {
           {renderStepContent(activeStep)}
 
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4 }}>
-            <Button
+            <Button 
               disabled={activeStep === 0}
               onClick={handleBack}
               variant="outlined"
@@ -601,18 +645,18 @@ const Training: React.FC = () => {
                   {isLoading ? 'Erstelle Modell...' : 'Modell erstellen'}
                 </Button>
               ) : (
-                <Button
+            <Button 
                   variant="contained"
                   onClick={handleNext}
                   disabled={!isStepValid(activeStep)}
                 >
                   Weiter
-                </Button>
+            </Button>
               )}
             </Box>
           </Box>
-        </Paper>
-      </Container>
+      </Paper>
+    </Container>
     </DateProvider>
   );
 };

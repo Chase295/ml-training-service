@@ -6,8 +6,8 @@ WORKDIR /app
 # Environment für Vite
 ENV NODE_ENV=production
 
-# API Base URL als Build-Argument - feste IP für Coolify
-ARG VITE_API_BASE_URL=http://100.76.209.59:8001
+# API Base URL als Build-Argument - für lokale Entwicklung
+ARG VITE_API_BASE_URL=http://localhost:8001
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 # Dependencies installieren (inkl. devDependencies für Build)

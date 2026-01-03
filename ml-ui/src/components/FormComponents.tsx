@@ -16,6 +16,7 @@ import {
   Typography,
   InputAdornment,
   IconButton,
+  Button,
 } from '@mui/material';
 import {
   Visibility as VisibilityIcon,
@@ -282,7 +283,7 @@ interface FeatureSelectorProps {
   maxHeight?: string;
 }
 
-export const FeatureSelector: React.FC<FeatureSelectorProps> = ({
+const FeatureSelector: React.FC<FeatureSelectorProps> = ({
   label,
   categories,
   selectedFeatures,

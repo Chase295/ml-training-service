@@ -12,7 +12,9 @@ export {
   ValidatedTextField,
   ValidatedSelect,
   ValidatedAutocomplete,
-  FeatureSelector,
   ValidatedDateTimePicker,
   ValidatedDatePicker,
 } from './FormComponents';
+
+// Feature Selector
+export { default as FeatureSelector } from './FeatureSelector';
